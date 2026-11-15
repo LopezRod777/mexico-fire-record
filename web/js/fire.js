@@ -3,7 +3,7 @@
 // barrido y mensaje para reportar. Nada se envía solo: la foto vive en memoria y solo sale si la
 // persona toca "Compartir reporte con foto" y elige una app en la hoja de compartir del sistema.
 import { project, geometryToPath } from './geo.js';
-import { t, formatNumber, formatDate, formatDay, formatLocalTime, formatUtcTime, regionName } from './i18n.js';
+import { t, formatNumber, formatDate, formatDay, formatLocalTime, formatUtcTime, regionName, regionAliases } from './i18n.js';
 import { readJpegGps, PHOTO_MAX_BYTES, EXIF_READ_BYTES } from './exif.js';
 import { fireVerdict, comparePoints, mapUrl, nearestGoes, NEAR_KM } from './nearby.js';
 import { predictPasses } from './passes.js';
@@ -35,9 +35,12 @@ export function placeText(desc, prefix) {
   if (desc.kind === 'state') return t(`${prefix}State`, { state });
   if (desc.kind === 'far') return t(`${prefix}Far`, { state, km: PLACE_KM });
   const vars = { dir: t(`fire.dir.${desc.dir}`), place: desc.place, state };
-  if (desc.kind === 'in') return t(`${prefix}In`, vars);
   // La precisión que el dato permite: cientos de metros bajo 1 km y un decimal de 1 a 5 km.
-  return desc.km < 0.95 ? t(`${prefix}NearM`, { ...vars, m: Math.round(desc.km * 10) * 100 }) : t(`${prefix}Near`, { ...vars, km: km(desc.km) });
+  const text = desc.kind === 'in' ? t(`${prefix}In`, vars)
+    : desc.km < 0.95 ? t(`${prefix}NearM`, { ...vars, m: Math.round(desc.km * 10) * 100 }) : t(`${prefix}Near`, { ...vars, km: km(desc.km) });
+  // Si la localidad se llama igual que su estado (Ciudad de México), el estado no se repite.
+  const same = desc.place === state || regionAliases(desc.stateId).includes(desc.place);
+  return same ? text.replace(`, ${state}`, '') : text;
 }
 
 function miniMap(geo, point, matches) {

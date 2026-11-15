@@ -186,6 +186,9 @@ export const dictionaries = {
     'map.desc': "Las celdas se colorean por conteo anual y una llama marca las que superan el percentil 98. Si seleccionas un estado, la región cambia a ese estado.",
     'map.noData': 'Sin dato de este sensor en ese año',
     'map.partialYear': '{year} (hasta {month})',
+    'map.partialNote': '{year} llega hasta {month}, así que este mapa no es un año completo, y sus últimos meses son datos casi en tiempo real que pueden cambiar.',
+    'map.gapNote': 'VIIRS S-NPP no tiene datos sobre México en {n} días de {year}, así que su conteo queda bajo.',
+    'map.gapNoteOne': 'VIIRS S-NPP no tiene datos sobre México en 1 día de {year}, así que su conteo queda un poco bajo.',
     'map.select': 'Seleccionar {name}',
     'live.medianContext': '(mediana histórica para esa fecha: {median})',
     'heroThesis': 'Cada punto rojo es una detección como las que esta web cuenta durante 26 años.',
@@ -518,6 +521,9 @@ export const dictionaries = {
     'map.desc': "Cells are colored by annual count, and a flame marks the cells above the 98th percentile. Selecting a state changes the region to that state.",
     'map.noData': 'No data for this sensor in that year',
     'map.partialYear': '{year} (through {month})',
+    'map.partialNote': '{year} runs through {month}, so this map is not a full year, and its latest months are near-real-time data that may change.',
+    'map.gapNote': 'VIIRS S-NPP has no data over Mexico on {n} days of {year}, so its count runs low.',
+    'map.gapNoteOne': 'VIIRS S-NPP has no data over Mexico on 1 day of {year}, so its count runs slightly low.',
     'map.select': 'Select {name}',
     'live.medianContext': '(historical median for this date: {median})',
     'heroThesis': 'Each red dot is a detection like the ones this site counts across 26 years.',
@@ -715,6 +721,8 @@ const englishNames ={ MX:'Mexico (national)', 'MX-DIF':'Mexico City', 'MX-MEX':'
 // Los datos conservan el nombre anterior de MX-DIF ("Distrito Federal"); la web muestra el vigente.
 const spanishNames = { 'MX-DIF':'Ciudad de México' };
 export function regionName(id, names) { return (language === 'en' ? englishNames : spanishNames)[id] ?? names[id] ?? id; }
+// Nombres que la web usa para una región en cualquiera de los dos idiomas (para no repetirla junto a una localidad homónima).
+export function regionAliases(id) { return [englishNames[id], spanishNames[id]].filter(Boolean); }
 // Textos de la capa de humo (NOAA HMS), en un bloque aparte al final para no reordenar los
 // diccionarios. Mismas claves y marcadores en ES y EN.
 Object.assign(dictionaries.es, {
