@@ -56,6 +56,34 @@ def main() -> int:
     (RAW / "fetch_info.json").write_text(json.dumps(info, indent=1, ensure_ascii=False),
                                          encoding="utf-8")
     print(json.dumps({k: v["filas"] for k, v in info["fuentes"].items()}), downloaded)
+    return fetch_tle(downloaded)
+
+
+TLE_SATS = {"NOAA-20": 43013, "NOAA-21": 54234}
+
+
+def fetch_tle(downloaded: str) -> int:
+    """Órbitas (TLE) de CelesTrak para predecir pasos en el navegador.
+
+    Si falla, deja el archivo anterior y no detiene la captura de incendios.
+    """
+    sats = []
+    for name, catnr in TLE_SATS.items():
+        url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={catnr}&FORMAT=TLE"
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                lines = [l.rstrip() for l in response.read().decode("ascii").splitlines() if l.strip()]
+        except Exception as error:
+            print(f"TLE {name}: descarga fallida ({type(error).__name__}); se conserva el anterior", file=sys.stderr)
+            return 0
+        if len(lines) != 3 or not lines[1].startswith("1 ") or not lines[2].startswith("2 ") \
+                or int(lines[1][2:7]) != catnr:
+            print(f"TLE {name}: formato inesperado; se conserva el anterior", file=sys.stderr)
+            return 0
+        sats.append({"nombre": name, "norad": catnr, "tle1": lines[1], "tle2": lines[2]})
+    out = {"fuente": "CelesTrak GP", "descargado_utc": downloaded, "satelites": sats}
+    (ROOT / "web/data/tle.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print("TLE:", ", ".join(s["nombre"] for s in sats))
     return 0
 
 
