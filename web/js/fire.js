@@ -39,11 +39,22 @@ function miniMap(geo, point, matches) {
   return svg;
 }
 
+// Primero los pases calculados, del más próximo al más lejano, y al final los omitidos.
+export function sortPasses(preds) { return preds.slice().sort((a, b) => (b.ok - a.ok) || (a.ok ? a.closest - b.closest : 0)); }
+// Renglones del mensaje para que se lea completo sin desplazar (scrollHeight medido con rows=1).
+export function textRows(scrollH, padY, lineH, min = 2) { return Math.max(min, Math.round((scrollH - padY) / lineH)); }
+// Estado del mensaje para copiar: dice qué ventana de la captura se revisó, no "las últimas 24 h".
+export function reportStatus(verdict) {
+  if (verdict.kind === 'near') { const m = verdict.matches[0]; return t('fire.msgNear', { km: km(m.km), ...detClock(m.d) }); }
+  if (verdict.kind === 'none') return t('fire.msgNone', { from: formatDate(new Date(verdict.from).toISOString()), to: formatDate(new Date(verdict.to).toISOString()) });
+  return t('fire.msgStale');
+}
+
 function passList(tle, point, now) {
   const wrap = node('div', 'fire-passes');
   wrap.append(node('h4', '', t('fire.passTitle')));
   const list = node('ul', 'fire-pass-list');
-  for (const p of predictPasses(tle, point, now)) {
+  for (const p of sortPasses(predictPasses(tle, point, now))) {
     let text;
     if (!p.ok) text = t(p.reason === 'stale' ? 'fire.passStale' : 'fire.passFailed', { sat: p.name, days: formatNumber(p.ageDays, 1) });
     else {
@@ -62,10 +73,7 @@ function reportBlock(point, verdict) {
   const call = node('a', 'fire-call', t('fire.call911')); call.href = 'tel:911';
   const conafor = node('a', 'fire-conafor', t('fire.conafor')); conafor.href = 'tel:8007370000';
   const url = mapUrl(point.lat, point.lon);
-  let status;
-  if (verdict.kind === 'near') { const m = verdict.matches[0]; status = t('fire.msgNear', { km: km(m.km), ...detClock(m.d) }); }
-  else status = t(verdict.kind === 'none' ? 'fire.msgNone' : 'fire.msgStale');
-  const message = t('fire.msg', { coords: coords(point), url, status });
+  const message = t('fire.msg', { coords: coords(point), url, status: reportStatus(verdict) });
   const copy = node('button', 'fire-copy', t('fire.copy')); copy.type = 'button';
   const openMap = node('a', 'fire-open-map', t('fire.openMap')); openMap.href = url; openMap.target = '_blank'; openMap.rel = 'noopener noreferrer';
   const actions = node('div', 'fire-share'); actions.append(copy, openMap);
@@ -124,6 +132,9 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
     out.push(reportBlock(point, verdict));
     if (tle) out.push(passList(tle, point, now));
     result.replaceChildren(...out);
+    // Al cambiar de idioma el bloque todavía no está en la página, así que se mide en el cuadro siguiente.
+    const msg = result.querySelector('.fire-message');
+    requestAnimationFrame(() => { if (!msg?.clientWidth) return; const cs = getComputedStyle(msg); msg.rows = 1; msg.rows = textRows(msg.scrollHeight, parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom), parseFloat(cs.lineHeight)); });
     again.hidden = false;
     if (reveal) { heading.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); heading.focus({ preventScroll: true }); }
   }

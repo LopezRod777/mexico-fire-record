@@ -268,7 +268,7 @@ export const dictionaries = {
     'fire.nearOne': 'Hay una detección de calor a {km} km, registrada por {sat} a las {time} UTC del {date}.',
     'fire.nearMany': 'Hay {n} detecciones de calor a {radius} km o menos, y la más cercana está a {km} km, registrada por {sat} a las {time} UTC del {date}.',
     'fire.none': 'No encontramos detecciones de calor cerca en esta captura.',
-    'fire.noneWhy': 'Puede ser porque había nubes o humo, porque ningún satélite ha pasado desde que empezó o porque el fuego es pequeño para verse desde el espacio. Eso no descarta un incendio, así que si lo ves, repórtalo.',
+    'fire.noneWhy': 'Puede ser porque había nubes o humo, porque ningún satélite ha pasado desde que empezó el fuego o porque es pequeño para verse desde el espacio. Eso no descarta un incendio, así que si lo ves, repórtalo.',
     'fire.stale': 'Esta captura tiene {age}, así que no damos un veredicto satelital para tu punto, porque puede haber pases más recientes que todavía no bajamos.',
     'fire.heatNote': 'NASA FIRMS registra anomalías de calor, no incendios comprobados en tierra.',
     'fire.miniMapTitle': 'Tu punto y las detecciones de calor cercanas',
@@ -292,7 +292,7 @@ export const dictionaries = {
     'fire.messageLabel': 'Mensaje que se copiará',
     'fire.msg': 'Quiero reportar un posible incendio en las coordenadas {coords}, que se ven en este mapa, {url}. {status}',
     'fire.msgNear': 'Según NASA FIRMS, hay una detección de calor a {km} km, registrada por {sat} a las {time} UTC del {date}.',
-    'fire.msgNone': 'Según NASA FIRMS, no hay detecciones de calor a 5 km o menos en las últimas 24 h, aunque eso no descarta un incendio.',
+    'fire.msgNone': 'Según la captura de NASA FIRMS que consulté (del {from} al {to}), no hay detecciones de calor a 5 km o menos, aunque eso no descarta un incendio.',
     'fire.msgStale': 'La captura satelital que consulté tiene más de 6 h, así que no la tomé en cuenta.',
   },
   en: {
@@ -564,7 +564,7 @@ export const dictionaries = {
     'fire.nearOne': 'There is a heat detection {km} km away, recorded by {sat} at {time} UTC on {date}.',
     'fire.nearMany': 'There are {n} heat detections within {radius} km, and the nearest is {km} km away, recorded by {sat} at {time} UTC on {date}.',
     'fire.none': 'We found no heat detections nearby in this snapshot.',
-    'fire.noneWhy': 'It may be because of clouds or smoke, because no satellite has passed since it started, or because the fire is too small to be seen from space. That does not rule out a fire, so if you see one, report it.',
+    'fire.noneWhy': 'It may be because of clouds or smoke, because no satellite has passed since the fire started, or because it is too small to be seen from space. That does not rule out a fire, so if you see one, report it.',
     'fire.stale': 'This snapshot is {age} old, so we give no satellite verdict for your point, because there may be newer passes we have not downloaded yet.',
     'fire.heatNote': 'NASA FIRMS records heat anomalies, not fires verified on the ground.',
     'fire.miniMapTitle': 'Your point and nearby heat detections',
@@ -588,7 +588,7 @@ export const dictionaries = {
     'fire.messageLabel': 'Message to be copied',
     'fire.msg': 'I want to report a possible fire at coordinates {coords}, shown on this map, {url}. {status}',
     'fire.msgNear': 'According to NASA FIRMS, there is a heat detection {km} km away, recorded by {sat} at {time} UTC on {date}.',
-    'fire.msgNone': 'According to NASA FIRMS, there are no heat detections within 5 km in the past 24 h, although that does not rule out a fire.',
+    'fire.msgNone': 'According to the NASA FIRMS snapshot I checked (from {from} to {to}), there are no heat detections within 5 km, although that does not rule out a fire.',
     'fire.msgStale': 'The satellite snapshot I checked is more than 6 h old, so I did not take it into account.',
   }
 };

@@ -134,3 +134,7 @@ details:not([open]) > :not(summary){display:none}
 .fire-message-label{font-size:13px;margin:12px 0 4px}
 .fire-message{display:block;width:100%;padding:10px;background:transparent;color:var(--text);border:1px solid var(--line);border-radius:2px;font:400 13px/1.45 Plex Sans,Arial,sans-serif;resize:vertical}
 @media(max-width:600px){.fire{margin-top:32px;max-width:none}.fire-start,.fire-call{width:100%}.live-next-pass{max-width:none}}
+@media(min-width:601px){.live-map-block{position:sticky;top:72px}}
+@media(min-width:601px) and (max-width:900px){.live-map-block{top:124px}}
+.live-map-frame>svg.is-zoomed .live-cluster.is-selected .live-flame{opacity:.3}
+.fire-passes{margin-top:24px}

@@ -18,6 +18,9 @@ export function isStale(generado, now=Date.now()) { return ageHours(generado,now
 export function levelBadge(level) { return t(`live.level.${level ?? 'none'}`); }
 export function rankingComparison(item) { return t('live.rankingComparison',{cells:number(item.celdas_dia),median:number(item.base_p50),p90:number(item.base_p90)}); }
 export function livePointRadius(width) { return Math.max(2.5, 3 * VIEW.width / width); }
+// Avance del zoom (0 a 1) con salida cúbica. El primer cuadro de requestAnimationFrame puede
+// traer una hora anterior a t0, así que el avance se acota para no invertir el viewBox.
+export function zoomEase(elapsed, duration=650) { const p=Math.max(0,Math.min(1,elapsed/duration));return {p,e:1-(1-p)**3}; }
 function validRegion(v) { return v && typeof v==='object' && ['n20','n21','celdas_dia','base_p10','base_p50','base_p90','base_p99','base_max'].every(k=>typeof v[k]==='number'&&Number.isFinite(v[k])) && Number.isInteger(v.n20)&&Number.isInteger(v.n21)&&[1,2].includes(v.sensores_usados)&&(v.nivel===null||Object.hasOwn(LEVELS,v.nivel)); }
 export function validLiveSnapshot(d, stateIds) {
   if(!d||typeof d!=='object'||Array.isArray(d))return false;
@@ -150,7 +153,7 @@ function startReplay(ui,dets,passes,tl) {
     paintCluster(c,c,s,r.kc);
     const motion=animate&&!reducedMotion();
     if(!s.shown){s.shown=true;c.ignite.setAttribute('opacity','1');if(motion)c.ignite.animate([{opacity:0,transform:'scale(.2)'},{opacity:1,transform:'scale(1)'}],{duration:450,easing:'cubic-bezier(.22,1,.36,1)'});}
-    if(motion){const now=performance.now();if(now-(c.ringAt??0)>300){c.ringAt=now;c.ring.animate([{opacity:.95,transform:'scale(.35)'},{opacity:0,transform:'scale(2.6)'}],{duration:1000,easing:'cubic-bezier(.22,1,.36,1)'});}}
+    if(motion){const now=performance.now();if(now-(c.ringAt??0)>300){c.ringAt=now;c.ring.animate([{opacity:.95,transform:'scale(.35)'},{opacity:0,transform:`scale(${innerWidth<560?1.8:2.6})`}],{duration:1000,easing:'cubic-bezier(.22,1,.36,1)'});}}
   }
   function reset() { r.pointer=0;r.shown=0;r.time=-Infinity; for(const c of r.clusters){c.state={n:0,n20:0,n21:0,frpMax:0,shown:false,lastPlay:-Infinity,look:''};c.ignite.setAttribute('opacity','0');c.count.textContent='';c.group.setAttribute('class','live-cluster');} }
   function render() {
@@ -174,7 +177,7 @@ function startReplay(ui,dets,passes,tl) {
     const layer=svgNode('g',{class:'live-clusters'});
     r.clusters=clusterDetections(dets,r.kc);r.memberOf=[];
     r.clusters.forEach((c,ci)=>{c.members.forEach(i=>{r.memberOf[i]=ci;});Object.assign(c,clusterNode(c,dets,r.kc,true));layer.append(c.group);c.group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(ci);}});});
-    ui.svg.append(layer,overlay);
+    ui.svg.append(dotsLayer,layer,overlay);
     return true;
   }
   function build() {
@@ -209,7 +212,8 @@ function startReplay(ui,dets,passes,tl) {
   const unitsPerPx=()=>r.k*r.vb.w/VIEW.width;
   function paintOverlay() {
     const u=unitsPerPx(),marks=[];
-    if(r.focus)for(const i of r.focus.members)marks.push(svgNode('circle',{class:'live-focus-dot',cx:dets[i].x.toFixed(2),cy:dets[i].y.toFixed(2),r:(3.5*u).toFixed(3)}));
+    // Los puntos de la selección van debajo de las llamas, así las cifras quedan encima.
+    dotsLayer.replaceChildren(...(r.focus?.members??[]).map(i=>svgNode('circle',{class:'live-focus-dot',cx:dets[i].x.toFixed(2),cy:dets[i].y.toFixed(2),r:(3.5*u).toFixed(3)})));
     if(r.you){const [x,y]=project(r.you.lon,r.you.lat);marks.push(svgNode('circle',{class:'live-you',cx:x.toFixed(2),cy:y.toFixed(2),r:(8*u).toFixed(3)}),svgNode('circle',{class:'live-you-dot',cx:x.toFixed(2),cy:y.toFixed(2),r:(2.5*u).toFixed(3)}));}
     overlay.replaceChildren(...marks);
   }
@@ -222,7 +226,7 @@ function startReplay(ui,dets,passes,tl) {
     cancelAnimationFrame(r.zoomRaf);const from={...r.vb};
     if(reducedMotion()){r.vb={...target};applyView();done?.();return;}
     const t0=performance.now();
-    const step=now=>{const p=Math.min(1,(now-t0)/650),e=1-(1-p)**3;r.vb={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e,w:from.w+(target.w-from.w)*e,h:from.h+(target.h-from.h)*e};applyView();if(p<1)r.zoomRaf=requestAnimationFrame(step);else done?.();};
+    const step=now=>{const {p,e}=zoomEase(now-t0);r.vb={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e,w:from.w+(target.w-from.w)*e,h:from.h+(target.h-from.h)*e};applyView();if(p<1)r.zoomRaf=requestAnimationFrame(step);else done?.();};
     r.zoomRaf=requestAnimationFrame(step);
   }
   function markSelected() { const set=new Set(r.focus?.members??[]);for(const c of r.clusters)c.group.classList.toggle('is-selected',c.members.some(i=>set.has(i))); }
@@ -240,7 +244,7 @@ function startReplay(ui,dets,passes,tl) {
     const first=r.focus?.members[0];r.focus=null;regroup(1);markSelected();animateView({...FULL});ui.reset.hidden=true;ui.onFocus(null);
     if(first!=null)r.clusters.find(c=>c.members.includes(first))?.group.focus({preventScroll:true});
   }
-  const overlay=svgNode('g',{class:'live-overlay','aria-hidden':'true'});
+  const overlay=svgNode('g',{class:'live-overlay','aria-hidden':'true'}),dotsLayer=svgNode('g',{class:'live-focus-dots','aria-hidden':'true'});
   r.rebuild=()=>{const at=r.time;if(build()){goTo(at,false);applyView();markSelected();}};
   if(!build())return;
   applyView();
@@ -258,12 +262,15 @@ function startReplay(ui,dets,passes,tl) {
     if(best>=0&&bd<=26*u)select(best);
   });
   r.api={
-    startPick(done){r.pick=done;ui.frame.classList.add('is-picking');ui.pickHint.textContent=t('fire.pickHint');ui.pickHint.hidden=false;},
+    startPick(done){seekTo(tl.end);r.pick=done;ui.frame.classList.add('is-picking');ui.pickHint.textContent=t('fire.pickHint');ui.pickHint.hidden=false;},
     stopPick(){r.pick=null;ui.frame.classList.remove('is-picking');ui.pickHint.hidden=true;},
     showPoint(point){r.you=point;paintOverlay();},
     scrollToMap(){ui.frame.scrollIntoView({block:'center',behavior:reducedMotion()?'auto':'smooth'});}
   };
-  if(r.userPaused){r.playhead=REPLAY_MS+HOLD_MS;goTo(tl.end,false);}else goTo(tl.start,false);
+  // Hasta que el mapa entra a la vista se muestra el estado final (las 276, no "0 de 276"); el
+  // primer cuadro de la reproducción vuelve al inicio.
+  if(r.userPaused)r.playhead=REPLAY_MS+HOLD_MS;
+  goTo(tl.end,false);
   updateButton();
   ui.play.addEventListener('click',()=>{
     r.userPaused=!r.userPaused;
@@ -311,7 +318,7 @@ function onLiveResize(){clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{re
 function renderLive(snapshot,names,geo,health,notice,tle) {
   const target=document.getElementById('live-content'),s=liveSummary(snapshot,names);
   ensureFlameDefs();
-  const status=node('p','live-status',`${t('live.capture',{date:formatUtc(snapshot.generado)})} · ${t('live.last',{date:formatUtc(snapshot.ultima_deteccion_utc)})}`);
+  const status=node('p','live-status');status.append(node('span','no-break',t('live.capture',{date:formatUtc(snapshot.generado)})),' · ',node('span','no-break',t('live.last',{date:formatUtc(snapshot.ultima_deteccion_utc)})));
   const stats=node('div','live-stats');
   const lead=node('div','live-stat live-stat-lead'),leadValue=node('strong','live-count-value'),countNow=node('span','live-count-now',number(s.nDetecciones)),countOf=node('span','live-count-of');
   leadValue.append(countNow,countOf);lead.append(leadValue,node('span','live-stat-label',t('live.detected')));stats.append(lead);
