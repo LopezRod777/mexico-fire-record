@@ -2,7 +2,7 @@ import { VIEW, project, unproject, geometryToPath } from './geo.js';
 import { number } from './format.js';
 import { ensureFlameDefs } from './flame.js';
 import { t, formatDate, formatDay, formatClock, formatLocalTime, formatUtcTime, regionName } from './i18n.js';
-import { clusterSummary, worldviewUrl, zoomBox } from './nearby.js';
+import { clusterSummary, worldviewUrl, focusView, pickBox } from './nearby.js';
 import { predictPasses, firstPass, CENTER_MX } from './passes.js';
 import { buildFireBlock } from './fire.js';
 import { FRP_CUTS, frpClass, clusterHeight, clusterDetections, clusterAttrs, detectionTime, satellitePasses, modisProbabilities, modisExpected, modisSelection, timelineBins, timelineFraction, timelineSeek, timelineKey, replaySchedule, scheduleTime, scheduleProgress, passNow } from './replay.js';
@@ -142,12 +142,12 @@ function startReplay(ui,dets,passes,tl) {
   const schedule=replaySchedule(passes,tl.start,tl.end);
   dets.forEach(d=>{d.playAt=scheduleProgress(d.time,schedule)*REPLAY_MS;});
   const total=dets.length;
-  const r={raf:0,playhead:0,lastNow:null,userPaused:reducedMotion(),hoverPaused:false,inView:false,once:false,pointer:0,shown:0,time:-Infinity,clusters:[],memberOf:[],k:1,timeline:null,pass:undefined,dragging:false};
+  const r={raf:0,playhead:0,lastNow:null,userPaused:reducedMotion(),hoverPaused:false,inView:false,once:false,pointer:0,shown:0,time:-Infinity,clusters:[],memberOf:[],k:1,cs:1,kc:1,timeline:null,pass:undefined,dragging:false};
   replay=r;
   function fire(i,animate) {
     const c=r.clusters[r.memberOf[i]],d=dets[i],s=c.state;
     s.n++;if(d.sat==='N21')s.n21++;else s.n20++;s.frpMax=Math.max(s.frpMax,Number.isFinite(d.frp)?d.frp:0);s.lastPlay=Math.max(s.lastPlay,d.playAt);r.shown++;
-    paintCluster(c,c,s,r.k);
+    paintCluster(c,c,s,r.kc);
     const motion=animate&&!reducedMotion();
     if(!s.shown){s.shown=true;c.ignite.setAttribute('opacity','1');if(motion)c.ignite.animate([{opacity:0,transform:'scale(.2)'},{opacity:1,transform:'scale(1)'}],{duration:450,easing:'cubic-bezier(.22,1,.36,1)'});}
     if(motion){const now=performance.now();if(now-(c.ringAt??0)>300){c.ringAt=now;c.ring.animate([{opacity:.95,transform:'scale(.35)'},{opacity:0,transform:'scale(2.6)'}],{duration:1000,easing:'cubic-bezier(.22,1,.36,1)'});}}
@@ -165,17 +165,30 @@ function startReplay(ui,dets,passes,tl) {
     ui.slider.setAttribute('aria-valuenow',String(Math.round((Math.min(r.time,tl.end)-tl.start)/60000)));ui.slider.setAttribute('aria-valuetext',clock);
   }
   function goTo(time,animate) { if(time<r.time)reset(); while(r.pointer<order.length&&dets[order[r.pointer]].time<=time)fire(order[r.pointer++],animate); r.time=time; render(); }
-  function build() {
+  // Agrupa con la escala cs de la vista (1 = todo México; menor al acercar, así la llama
+  // tocada se parte en llamas más chicas dentro de la zona).
+  function buildClusters(cs) {
     const width=ui.svg.getBoundingClientRect().width;if(!width)return false;
-    r.k=VIEW.width/width;
+    r.k=VIEW.width/width;r.cs=cs;r.kc=r.k*cs;
     ui.svg.querySelector('.live-clusters')?.remove();
     const layer=svgNode('g',{class:'live-clusters'});
-    r.clusters=clusterDetections(dets,r.k);r.memberOf=[];
-    r.clusters.forEach((c,ci)=>{c.members.forEach(i=>{r.memberOf[i]=ci;});Object.assign(c,clusterNode(c,dets,r.k,true));layer.append(c.group);c.group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(ci);}});});
+    r.clusters=clusterDetections(dets,r.kc);r.memberOf=[];
+    r.clusters.forEach((c,ci)=>{c.members.forEach(i=>{r.memberOf[i]=ci;});Object.assign(c,clusterNode(c,dets,r.kc,true));layer.append(c.group);c.group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(ci);}});});
     ui.svg.append(layer,overlay);
+    return true;
+  }
+  function build() {
+    if(!buildClusters(r.cs))return false;
     r.timeline=buildTimeline(ui.timeline,tl,passes);
     reset();
     return true;
+  }
+  function regroup(cs) {
+    if(cs===r.cs)return;
+    const at=r.time,hadFocus=r.clusters.some(c=>c.group===document.activeElement);
+    if(!buildClusters(cs))return;
+    reset();goTo(at,false);applyView();markSelected();
+    if(hadFocus)r.clusters.find(c=>c.group.classList.contains('is-selected'))?.group.focus({preventScroll:true});
   }
   const running=()=>!r.userPaused&&!r.hoverPaused&&r.inView;
   function updateButton(){ui.play.textContent=t(r.userPaused?'live.play':'live.pause');ui.play.setAttribute('aria-pressed',String(!r.userPaused));}
@@ -202,46 +215,50 @@ function startReplay(ui,dets,passes,tl) {
   }
   function applyView() {
     const v=r.vb;ui.svg.setAttribute('viewBox',`${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`);
-    const s=`scale(${(v.w/VIEW.width).toFixed(4)})`;for(const c of r.clusters)c.zoom.setAttribute('transform',s);
+    const s=`scale(${(v.w/VIEW.width/r.cs).toFixed(4)})`;for(const c of r.clusters)c.zoom.setAttribute('transform',s);
     ui.svg.classList.toggle('is-zoomed',v.w<VIEW.width-0.01);paintOverlay();
   }
-  function animateView(target) {
+  function animateView(target,done) {
     cancelAnimationFrame(r.zoomRaf);const from={...r.vb};
-    if(reducedMotion()){r.vb={...target};applyView();return;}
+    if(reducedMotion()){r.vb={...target};applyView();done?.();return;}
     const t0=performance.now();
-    const step=now=>{const p=Math.min(1,(now-t0)/650),e=1-(1-p)**3;r.vb={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e,w:from.w+(target.w-from.w)*e,h:from.h+(target.h-from.h)*e};applyView();if(p<1)r.zoomRaf=requestAnimationFrame(step);};
+    const step=now=>{const p=Math.min(1,(now-t0)/650),e=1-(1-p)**3;r.vb={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e,w:from.w+(target.w-from.w)*e,h:from.h+(target.h-from.h)*e};applyView();if(p<1)r.zoomRaf=requestAnimationFrame(step);else done?.();};
     r.zoomRaf=requestAnimationFrame(step);
   }
-  function markSelected() { const first=r.focus?.members[0];for(const c of r.clusters)c.group.classList.toggle('is-selected',first!=null&&c.members.includes(first)); }
+  function markSelected() { const set=new Set(r.focus?.members??[]);for(const c of r.clusters)c.group.classList.toggle('is-selected',c.members.some(i=>set.has(i))); }
   function select(ci) {
     const c=r.clusters[ci];if(!c)return;
     seekTo(tl.end);
     r.focus={members:c.members.slice()};markSelected();
-    animateView(zoomBox(c.members.map(i=>dets[i]),VIEW));
-    ui.reset.hidden=false;ui.onFocus(r.focus.members);
+    const view=focusView(c.members.map(i=>dets[i]),r.k,VIEW);
+    animateView(view.box,()=>regroup(view.scale));
+    ui.reset.hidden=false;ui.onFocus(r.focus.members,view.zone);
   }
+  const zoomed=()=>r.vb.w<VIEW.width-0.01;
   function clearFocus() {
-    if(!r.focus)return;
-    const first=r.focus.members[0];r.focus=null;markSelected();animateView({...FULL});ui.reset.hidden=true;ui.onFocus(null);
-    r.clusters.find(c=>c.members.includes(first))?.group.focus({preventScroll:true});
+    if(!r.focus&&!zoomed())return;
+    const first=r.focus?.members[0];r.focus=null;regroup(1);markSelected();animateView({...FULL});ui.reset.hidden=true;ui.onFocus(null);
+    if(first!=null)r.clusters.find(c=>c.members.includes(first))?.group.focus({preventScroll:true});
   }
   const overlay=svgNode('g',{class:'live-overlay','aria-hidden':'true'});
   r.rebuild=()=>{const at=r.time;if(build()){goTo(at,false);applyView();markSelected();}};
   if(!build())return;
   applyView();
   ui.reset.addEventListener('click',clearFocus);
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&r.focus){e.preventDefault();clearFocus();}},{signal:r.abort.signal});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(r.focus||zoomed())){e.preventDefault();clearFocus();}},{signal:r.abort.signal});
   // Clic: en modo "elegir punto" fija el punto; si no, abre la llama más cercana (≤ 26 px).
   ui.svg.addEventListener('click',e=>{
     const ctm=ui.svg.getScreenCTM();if(!ctm)return;
     const p=new DOMPoint(e.clientX,e.clientY).matrixTransform(ctm.inverse());
+    // Primer toque con el mapa lejos: acerca a ±1° y pide el lugar exacto; el segundo lo fija.
+    if(r.pick&&r.vb.w>pickBox(p.x,p.y,VIEW).w*1.5){animateView(pickBox(p.x,p.y,VIEW));ui.reset.hidden=false;ui.pickHint.textContent=t('fire.pickZoomed');return;}
     if(r.pick){const done=r.pick;r.api.stopPick();mapState.pick=null;const [lon,lat]=unproject(p.x,p.y);done({lat,lon});return;}
     const u=unitsPerPx();let best=-1,bd=Infinity;
     r.clusters.forEach((c,i)=>{if(!c.state.shown)return;const d=Math.hypot(p.x-c.x,p.y-(c.y-clusterHeight(c.n)*u*0.45));if(d<bd){bd=d;best=i;}});
     if(best>=0&&bd<=26*u)select(best);
   });
   r.api={
-    startPick(done){r.pick=done;ui.frame.classList.add('is-picking');ui.pickHint.hidden=false;},
+    startPick(done){r.pick=done;ui.frame.classList.add('is-picking');ui.pickHint.textContent=t('fire.pickHint');ui.pickHint.hidden=false;},
     stopPick(){r.pick=null;ui.frame.classList.remove('is-picking');ui.pickHint.hidden=true;},
     showPoint(point){r.you=point;paintOverlay();},
     scrollToMap(){ui.frame.scrollIntoView({block:'center',behavior:reducedMotion()?'auto':'smooth'});}
@@ -309,11 +326,11 @@ function renderLive(snapshot,names,geo,health,notice,tle) {
   const pickHint=node('p','live-pick-hint',t('fire.pickHint'));pickHint.hidden=true;
   frame.append(svg,passing,pickHint);
   const focusPanel=node('div','live-focus');focusPanel.setAttribute('aria-live','polite');
-  function showFocus(members) {
+  function showFocus(members,zone) {
     if(!members){focusPanel.replaceChildren();return;}
     const ds=members.map(i=>snapshot.detecciones[i]),f=clusterSummary(ds),n20=ds.filter(d=>d.sat==='N20').length;
     const link=node('a','live-focus-link',t('focus.worldview'));link.href=worldviewUrl(f.last);link.target='_blank';link.rel='noopener noreferrer';
-    const parts=[node('h3','live-focus-title',f.n===1?t('focus.titleOne'):t('focus.title',{n:number(f.n)})),node('p','',t('focus.last',{sat:SAT_NAMES[f.last.sat],time:f.last.hora_utc,date:formatDay(f.last.fecha)}))];
+    const parts=[node('h3','live-focus-title',f.n===1?t('focus.titleOne'):t(zone?'focus.titleZone':'focus.title',{n:number(f.n)})),node('p','',t('focus.last',{sat:SAT_NAMES[f.last.sat],time:f.last.hora_utc,date:formatDay(f.last.fecha)}))];
     if(f.n>1)parts.push(node('p','',t('focus.sats',{n20:number(n20),n21:number(f.n-n20)})));
     parts.push(node('p','',f.frpMax==null?t('focus.frpNone'):t('focus.frp',{frp:number(f.frpMax)})),node('p','live-focus-note',t('focus.dots')),link,node('p','live-focus-note',t('focus.worldviewNote')),node('p','live-focus-note',t(f.night?'focus.nightNote':'focus.dayNote')));
     focusPanel.replaceChildren(...parts);

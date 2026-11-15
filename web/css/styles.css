@@ -84,7 +84,7 @@ details:not([open]) > :not(summary){display:none}
 .live-focus:empty{display:none}
 .live-focus{margin:16px 0 8px;padding:20px 0 4px;border-top:1px solid var(--line);max-width:60ch}
 .live-focus p{margin:0 0 10px}
-.live-focus-title{font-size:22px;margin:0 0 12px}
+.live-focus-title{font-size:22px;margin:0 0 12px;max-width:none}
 .live-focus-note{font-size:13px;color:var(--muted)}
 .live-focus-link,.fire-open-map,.fire-conafor{display:inline-flex;align-items:center;min-height:44px;font-weight:600}
 .live-next-pass{display:flex;align-items:baseline;gap:10px;margin:24px 0 0;max-width:44ch}
@@ -115,6 +115,7 @@ details:not([open]) > :not(summary){display:none}
 .fire-result{padding-top:16px;border-top:1px solid var(--line)}
 .fire-result h4{font-size:18px;margin:24px 0 8px}
 .fire-result h4:first-child{margin-top:0}
+.fire-result-title{scroll-margin-top:100px}
 .fire-result p{margin:0 0 10px}
 .fire-verdict{font-size:18px;font-weight:600}
 .fire-minimap{display:block;width:100%;max-width:420px;height:auto;margin:8px 0 12px;background:var(--surface)}

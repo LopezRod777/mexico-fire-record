@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readJpegGps, EXIF_READ_BYTES } from '../js/exif.js';
-import { haversineKm, nearbyDetections, fireVerdict, comparePoints, clusterSummary, worldviewUrl, mapUrl, zoomBox, snapshotWindow, EARTH_KM } from '../js/nearby.js';
+import { haversineKm, nearbyDetections, fireVerdict, comparePoints, clusterSummary, worldviewUrl, mapUrl, zoomBox, snapshotWindow, EARTH_KM, focusView, pickBox } from '../js/nearby.js';
 import { tleEpochMs, predictPasses, firstPass, satrecFrom, distanceKm, nextCoverage, CENTER_MX } from '../js/passes.js';
 import { VIEW, project, unproject } from '../js/geo.js';
-import { detectionTime } from '../js/replay.js';
+import { detectionTime, clusterDetections } from '../js/replay.js';
+import { photoNoteKey } from '../js/fire.js';
 import { dictionaries } from '../js/i18n.js';
 
 const read = path => JSON.parse(readFileSync(new URL(path, import.meta.url)));
@@ -202,4 +203,56 @@ test('textos nuevos: ES y EN, sin "confirmado", sin punto y coma ni dos puntos',
   assert.match(dictionaries.es['fire.conafor'], /800 737 0000.*2022/);
   assert.equal(dictionaries.es['focus.worldview'], 'Explorar imágenes y anomalías de ese día');
   assert.equal(dictionaries.es['fire.passTitle'], 'Próxima cobertura aproximada del barrido');
+});
+
+// ---------- Corrección 1 ----------
+test('foto sin ubicación: si no queda otra ubicación, el aviso pide elegir el punto', () => {
+  for (const key of ['fire.photoNoGps', 'fire.photoBad', 'fire.photoNotJpeg']) {
+    assert.equal(photoNoteKey(key, false), key);
+    const alone = photoNoteKey(key, true);
+    assert.notEqual(alone, key);
+    for (const lang of ['es', 'en']) {
+      assert.match(dictionaries[lang][key], /otra ubicación|other location/);
+      assert.doesNotMatch(dictionaries[lang][alone], /otra ubicación|other location/);
+      assert.match(dictionaries[lang][alone], /mapa|map/);
+    }
+  }
+  for (const key of ['fire.photoOk', 'fire.photoTooBig']) assert.equal(photoNoteKey(key, true), key);
+});
+test('foto sin ubicación: el flujo borra el resultado anterior cuando no queda punto', () => {
+  const fire = readFileSync(new URL('../js/fire.js', import.meta.url), 'utf8');
+  assert.match(fire, /if \(point\) \{[^\n]*render\(point, reveal\); return; \}\n(?:\s*\/\/[^\n]*\n)?\s*result\.replaceChildren\(\); again\.hidden = true; mapApi\.showPoint\(null\);/);
+});
+test('resultado: el reporte (911) va antes de la cobertura del satélite', () => {
+  const fire = readFileSync(new URL('../js/fire.js', import.meta.url), 'utf8');
+  assert.ok(fire.indexOf('out.push(reportBlock(point, verdict));') < fire.indexOf('if (tle) out.push(passList(tle, point, now));'));
+  assert.match(fire, /scrollIntoView\(\{ block: 'start', behavior: matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches \? 'auto' : 'smooth' \}\)/);
+});
+test('cabecera de órbita: habla del barrido que cubre el centro, no de pasar encima', () => {
+  for (const key of ['orbit.nextCenter', 'orbit.nowCenter']) {
+    assert.match(dictionaries.es[key], /barrido/);
+    assert.match(dictionaries.en[key], /swath/);
+    assert.doesNotMatch(dictionaries.es[key], /pasa sobre|pasando ahora sobre/);
+    assert.doesNotMatch(dictionaries.en[key], /pass over|passing over/);
+  }
+});
+test('elegir en el mapa: el primer toque acerca a ±1° de longitud, dentro del mapa', () => {
+  for (const [lon, lat] of [[-100.9, 21.3], [-117.5, 32.4], [-87, 15]]) {
+    const [x, y] = project(lon, lat), b = pickBox(x, y, VIEW);
+    const twoDeg = project(lon + 1, lat)[0] - project(lon - 1, lat)[0];
+    assert.ok(Math.abs(b.w - twoDeg) < 1e-9);
+    assert.ok(Math.abs(b.h / b.w - VIEW.height / VIEW.width) < 1e-9);
+    assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.w <= VIEW.width + 1e-9 && b.y + b.h <= VIEW.height + 1e-9);
+    assert.ok(x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+    assert.ok(VIEW.width / b.w > 12, String(VIEW.width / b.w));
+  }
+});
+test('llama grande: al acercar se vuelve a agrupar y el panel la llama zona', () => {
+  const k = 700 / 358, line = Array.from({ length: 21 }, (_, i) => ({ x: 300 + 5 * i, y: 200, frp: 1 }));
+  assert.equal(clusterDetections(line, k).length, 1);
+  const v = focusView(line, k, VIEW);
+  assert.ok(Math.abs(v.box.w / VIEW.width - v.scale) < 1e-12 && v.scale < 1);
+  assert.ok(clusterDetections(line, k * v.scale).length > 1);
+  assert.equal(v.zone, true);
+  assert.equal(focusView([{ x: 300, y: 200, frp: 1 }], k, VIEW).zone, false);
 });

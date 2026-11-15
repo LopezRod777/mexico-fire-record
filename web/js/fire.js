@@ -16,6 +16,10 @@ const coords = p => `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
 const km = v => formatNumber(v, 1);
 const detClock = d => ({ sat: SAT_NAMES[d.sat], time: d.hora_utc, date: formatDay(d.fecha) });
 
+// Aviso de la foto sin ubicación: si no queda otra ubicación, pide elegir el punto en el mapa.
+const PHOTO_ALONE = { 'fire.photoNoGps': 'fire.photoNoGpsAlone', 'fire.photoBad': 'fire.photoBadAlone', 'fire.photoNotJpeg': 'fire.photoNotJpegAlone' };
+export function photoNoteKey(key, alone) { return alone ? PHOTO_ALONE[key] ?? key : key; }
+
 // Estado que sobrevive al cambio de idioma (la sección "Hoy" se vuelve a dibujar).
 const state = { open: false, geo: 'idle', phone: null, photo: null, photoMsg: null, manual: null, choice: null };
 
@@ -102,10 +106,11 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
     mapApi.startPick(point => { state.manual = { ...point, source: 'map' }; state.choice = 'manual'; decide(); });
     status.textContent = message;
   }
-  function render(point) {
+  function render(point, reveal) {
     mapApi.showPoint(point);
     const now = Date.now(), verdict = fireVerdict(point, snapshot, now);
-    const out = [node('h4', 'fire-result-title', t('fire.resultTitle')), node('p', 'fire-point', t('fire.point', { coords: coords(point), source: t(`fire.source.${point.source}`) }))];
+    const heading = node('h4', 'fire-result-title', t('fire.resultTitle')); heading.tabIndex = -1;
+    const out = [heading, node('p', 'fire-point', t('fire.point', { coords: coords(point), source: t(`fire.source.${point.source}`) }))];
     if (verdict.kind === 'stale') out.push(node('p', 'fire-verdict', t('fire.stale', { age: ageText(verdict.ageH) })));
     else {
       out.push(node('p', 'fire-window', t('fire.window', { km: NEAR_KM, from: formatDate(new Date(verdict.from).toISOString()), to: formatDate(new Date(verdict.to).toISOString()) })));
@@ -115,14 +120,18 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
       } else out.push(node('p', 'fire-verdict', t('fire.none')), node('p', '', t('fire.noneWhy')));
       out.push(node('p', 'fire-note', t('fire.heatNote')));
     }
-    if (tle) out.push(passList(tle, point, now));
+    // El reporte (911, CONAFOR, copiar) va justo después del veredicto y la cobertura al final.
     out.push(reportBlock(point, verdict));
+    if (tle) out.push(passList(tle, point, now));
     result.replaceChildren(...out);
     again.hidden = false;
+    if (reveal) { heading.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); heading.focus({ preventScroll: true }); }
   }
-  function decide() {
+  function decide(reveal = true) {
+    const fallback = state.geo === 'denied' || state.geo === 'unsupported';
     status.textContent = state.geo === 'asking' ? t('fire.locating') : '';
-    photoMsg.textContent = state.photoMsg ?? '';
+    const pm = state.photoMsg;
+    photoMsg.textContent = pm ? t(photoNoteKey(pm.key, fallback && !state.phone && !state.manual), pm.vars) : '';
     const cmp = comparePoints(state.phone, state.photo);
     choose.hidden = true; choose.replaceChildren();
     if (cmp.conflict && !state.choice) {
@@ -139,9 +148,10 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
       : state.phone ? { ...state.phone, source: 'phone' }
       : state.photo ? { ...state.photo, source: 'photo' }
       : state.manual;
-    const fallback = state.geo === 'denied' || state.geo === 'unsupported';
     manual.hidden = !fallback;
-    if (point) { manualMsg.textContent = ''; mapApi.stopPick(); render(point); return; }
+    if (point) { manualMsg.textContent = ''; mapApi.stopPick(); render(point, reveal); return; }
+    // Sin punto: se borra el resultado anterior (por ejemplo, de una foto ya descartada).
+    result.replaceChildren(); again.hidden = true; mapApi.showPoint(null);
     if (fallback) pickOnMap(t(state.geo === 'denied' ? 'fire.denied' : 'fire.unsupported'));
   }
   function locate() {
@@ -164,15 +174,15 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
     const file = photo.files?.[0];
     state.photo = null; state.photoMsg = null; if (state.choice === 'photo') state.choice = null;
     if (file) {
-      if (file.size > PHOTO_MAX_BYTES) state.photoMsg = t('fire.photoTooBig', { mb: PHOTO_MAX_BYTES / 1048576 });
+      if (file.size > PHOTO_MAX_BYTES) state.photoMsg = { key: 'fire.photoTooBig', vars: { mb: PHOTO_MAX_BYTES / 1048576 } };
       else {
         const gps = readJpegGps(await file.slice(0, EXIF_READ_BYTES).arrayBuffer());
-        if (gps.status === 'ok') { state.photo = { lat: gps.lat, lon: gps.lon }; state.photoMsg = t('fire.photoOk', { coords: coords(state.photo) }); }
-        else state.photoMsg = t({ 'not-jpeg': 'fire.photoNotJpeg', 'no-exif': 'fire.photoNoGps', 'no-gps': 'fire.photoNoGps' }[gps.status] ?? 'fire.photoBad');
+        if (gps.status === 'ok') { state.photo = { lat: gps.lat, lon: gps.lon }; state.photoMsg = { key: 'fire.photoOk', vars: { coords: coords(state.photo) } }; }
+        else state.photoMsg = { key: { 'not-jpeg': 'fire.photoNotJpeg', 'no-exif': 'fire.photoNoGps', 'no-gps': 'fire.photoNoGps' }[gps.status] ?? 'fire.photoBad' };
       }
     }
     decide();
   });
-  if (state.open) { panel.hidden = false; start.hidden = true; decide(); }
+  if (state.open) { panel.hidden = false; start.hidden = true; decide(false); }
   return block;
 }
