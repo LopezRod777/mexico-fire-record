@@ -27,9 +27,14 @@ Es estática (HTML, CSS y JS sin dependencias). Para verla: `python3 -m http.ser
 1. `scripts/download_firms_mexico.sh` baja los CSV anuales públicos de NASA FIRMS (sin llave).
 2. `pip install -r requirements.txt`, luego `pipeline/` (agregados, diagnósticos, asignación a estados, exportación a `web/data/`).
 3. La capa en vivo usa la API de FIRMS con `FIRMS_MAP_KEY` como variable de entorno (no incluida).
-4. Pruebas: `node --test web/tests/` y `python tests/test_*.py`.
+4. Pruebas: `node --test web/tests/` y, una por una, `for f in tests/test_*.py; do python "$f" || break; done`.
 
 `data/raw` y `data/processed` no se incluyen por tamaño (~900 MB); se regeneran con los pasos anteriores. Los JSON que usa la web ya están en `web/data/`.
+
+## Use of AI / Uso de IA
+EN: AI coding assistants (Anthropic Claude and OpenAI Codex) were used, under the team's direction, to write and review code, data pipelines, tests and website text. Every figure on the site is computed by the code in this repository from public NASA FIRMS data and is checked by automated tests. No image, video or audio on the site is AI-generated: the photographs are from NASA Earth Observatory and NOAA/CIRA.
+
+ES: Se usaron asistentes de programación con IA (Claude de Anthropic y Codex de OpenAI), bajo la dirección del equipo, para escribir y revisar código, pipelines de datos, pruebas y textos de la web. Cada cifra de la web la calcula el código de este repositorio a partir de datos públicos de NASA FIRMS y la comprueban pruebas automáticas. Ninguna imagen, video o audio de la web está generado con IA: las fotografías son de NASA Earth Observatory y NOAA/CIRA.
 
 ## Créditos
 Datos: NASA FIRMS (https://firms.modaps.eosdis.nasa.gov/). Contorno de estados: Natural Earth (dominio público). Imágenes: NASA Earth Observatory, NOAA y CSU/CIRA, dominio público, vía Wikimedia Commons (detalle en el pie de la web). Tipografías: Fraunces e IBM Plex Sans (OFL-1.1).

@@ -20,7 +20,7 @@ test('formatUtc: conserva el día UTC cerca de medianoche, sin depender de la zo
   assert.equal(formatUtc('2026-11-15T00:10:00Z'), '15 nov 2026, 00:10 UTC');
 });
 test('insignias: símbolo y texto de los cinco niveles y null', () => {
-  for (const [level, expected] of Object.entries({ bajo:'▼ bajo', normal:'● normal', alto:'▲ alto', extraordinario:'▲▲ extraordinario', record:'★ récord' })) assert.equal(levelBadge(level), expected);
+  for (const [level, expected] of Object.entries({ bajo:'▼ bajo', normal:'● normal', alto:'▲ alto', extraordinario:'▲▲ extraordinario', record:'★ récord de detecciones' })) assert.equal(levelBadge(level), expected);
   assert.equal(levelBadge(null), 'Sin nivel');
 });
 test('liveSummary: ranking, niveles, límite y nombres del catálogo', () => {
