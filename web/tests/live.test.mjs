@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { ageHours, formatUtc, isStale, levelBadge, livePointRadius, flameHeight, liveSummary, rankingComparison, validLiveSnapshot } from '../js/live.js';
+import { ageHours, formatUtc, isStale, levelBadge, livePointRadius, flameHeight, liveSummary, rankingComparison, validLiveSnapshot, validModis, validGoes } from '../js/live.js';
 
 const read = path => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const names = read('../data/series_monthly.json').region_names;
@@ -46,7 +46,11 @@ test('radio de puntos: mínimo efectivo de 3 px en móvil y escritorio', () => {
 });
 function checkContract(snapshot) {
   assert.ok(validLiveSnapshot(snapshot, stateIds));
-  assert.deepEqual(Object.keys(snapshot).sort(), ['generado','ultima_deteccion_utc','ventana_horas','dia_comparado','doy','fuentes','nota','descartadas_fuera_de_mexico','n_detecciones_24h','nacional','estados','detecciones'].sort());
+  // Campos base obligatorios; modis, goes y fuentes_extra_error son opcionales (capturas viejas no los traen).
+  const optional = ['modis','goes','fuentes_extra_error'];
+  assert.deepEqual(Object.keys(snapshot).filter(k => !optional.includes(k)).sort(), ['generado','ultima_deteccion_utc','ventana_horas','dia_comparado','doy','fuentes','nota','descartadas_fuera_de_mexico','n_detecciones_24h','nacional','estados','detecciones'].sort());
+  if (snapshot.modis != null) assert.ok(validModis(snapshot.modis, stateIds), 'modis');
+  if (snapshot.goes != null) assert.ok(validGoes(snapshot.goes), 'goes');
   const regionKeys = ['n20','n21','celdas_dia','sensores_usados','base_p10','base_p50','base_p90','base_p99','base_max','nivel'];
   assert.deepEqual(Object.keys(snapshot.nacional).sort(), regionKeys.sort());
   for (const id of stateIds) assert.deepEqual(Object.keys(snapshot.estados[id]).sort(), regionKeys);

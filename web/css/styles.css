@@ -139,3 +139,9 @@ details:not([open]) > :not(summary){display:none}
 .live-map-frame>svg.is-zoomed .live-cluster.is-selected .live-flame{opacity:.3}
 .fire-passes{margin-top:24px}
 @media(max-width:600px){.live-hero{display:flex;flex-direction:column}.live-top,.live-stats{display:contents}.live-stale{order:0}.live-stat-lead{order:1}.live-map-block{order:2;margin-top:32px}.live-stat:not(.live-stat-lead){order:3;margin-top:32px}.live-status{order:4}.live-next-pass{order:5;margin-top:32px}.fire{order:6;margin-top:24px}}
+.live-goes{fill:none;stroke:var(--ice);stroke-width:1.5;vector-effect:non-scaling-stroke;pointer-events:none}
+.legend-goes{fill:none;stroke:var(--ice);stroke-width:1.5}
+.live-goes-status{margin:0 0 16px;font-size:16px;max-width:62ch}
+.live-goes-toggle[aria-pressed="true"]{border-color:var(--ice);color:var(--ice)}
+.live-modis-real{margin:0 0 24px;font-size:clamp(18px,1rem + .4vw,22px);line-height:1.35;max-width:52ch}
+@media(max-width:600px){.live-controls button{flex:1 1 0;width:auto}}

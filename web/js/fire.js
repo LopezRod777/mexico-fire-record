@@ -4,9 +4,9 @@
 import { project, geometryToPath } from './geo.js';
 import { t, formatNumber, formatDate, formatDay, formatLocalTime, formatUtcTime } from './i18n.js';
 import { readJpegGps, PHOTO_MAX_BYTES, EXIF_READ_BYTES } from './exif.js';
-import { fireVerdict, comparePoints, mapUrl, NEAR_KM } from './nearby.js';
+import { fireVerdict, comparePoints, mapUrl, nearestGoes, NEAR_KM } from './nearby.js';
 import { predictPasses } from './passes.js';
-import { ageText } from './live.js';
+import { ageText, validGoes } from './live.js';
 
 const NS = 'http:' + '//www.w3.org/2000/svg';
 const SAT_NAMES = { N20: 'NOAA-20', N21: 'NOAA-21' };
@@ -126,6 +126,8 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
         const m = verdict.matches[0], n = verdict.matches.length;
         out.push(node('p', 'fire-verdict', t(n === 1 ? 'fire.nearOne' : 'fire.nearMany', { n, radius: NEAR_KM, km: km(m.km), ...detClock(m.d) })), miniMap(geo, point, verdict.matches), node('p', 'fire-note', t('fire.miniMapDesc')));
       } else out.push(node('p', 'fire-verdict', t('fire.none')), node('p', '', t('fire.noneWhy')));
+      const goes = validGoes(snapshot.goes) ? nearestGoes(point, snapshot.goes) : null;
+      if (goes) out.push(node('p', 'fire-goes', t('fire.goesNear', { km: km(goes.km), time: goes.g.hora_utc, date: formatDay(goes.g.fecha), h: snapshot.goes.ventana_horas })));
       out.push(node('p', 'fire-note', t('fire.heatNote')));
     }
     // El reporte (911, CONAFOR, copiar) va justo después del veredicto y la cobertura al final.

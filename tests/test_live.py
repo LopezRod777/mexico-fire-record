@@ -164,6 +164,116 @@ def valid_json_and_size(snapshot):
     return f"JSON válido; {len(encoded)} bytes ({len(encoded) / 1024:.1f} KiB)"
 
 
+def extra_frame(source):
+    """CSV crudo de una fuente extra con estado por celda de 0.05°, sin pasar por el pipeline."""
+    frame = pd.read_csv(ROOT / "data/live/raw" / f"{source}.csv", dtype=str, keep_default_na=False)
+    frame["latitude"] = pd.to_numeric(frame["latitude"])
+    frame["longitude"] = pd.to_numeric(frame["longitude"])
+    frame["cell_i"] = np.floor(frame["latitude"] / .05).astype("int64")
+    frame["cell_j"] = np.floor(frame["longitude"] / .05).astype("int64")
+    frame["instant"] = pd.to_datetime(frame["acq_date"] + frame["acq_time"].str.zfill(4),
+                                      format="%Y-%m-%d%H%M", utc=True)
+    con = duckdb.connect()
+    cells = con.execute("SELECT cell_i,cell_j,state_id FROM read_parquet(?)",
+                        [str(ROOT / "data/processed/mx/cell_state.parquet")]).df()
+    con.close()
+    frame = frame.merge(cells, on=["cell_i", "cell_j"], how="left", validate="many_to_one")
+    missing = frame["state_id"].isna()
+    if missing.any():
+        frame.loc[missing, "state_id"] = assign((frame.loc[missing, "cell_i"].to_numpy() + .5) * .05,
+                                                (frame.loc[missing, "cell_j"].to_numpy() + .5) * .05,
+                                                features)
+    return frame
+
+
+def extra_ok(source):
+    return info.get("fuentes_extra", {}).get(source, {}).get("ok", False)
+
+
+def modis_real(snapshot):
+    if not extra_ok("MODIS_NRT"):
+        assert snapshot["modis"] is None and "MODIS_NRT" in snapshot["fuentes_extra_error"]
+        return "MODIS no se descargó en esta captura: campo nulo y error anotado"
+    frame = extra_frame("MODIS_NRT")
+    assert set(frame["satellite"]) <= {"Terra", "Aqua"}, set(frame["satellite"])
+    inside = frame["state_id"] != "OUT"
+    window = (frame["instant"] > pd.Timestamp(start)) & (frame["instant"] <= pd.Timestamp(download))
+    expected = frame[inside & window]
+    modis = snapshot["modis"]
+    assert modis["fuente"] == "MODIS_NRT" and modis["ventana_horas"] == 24
+    assert modis["n_24h"] == len(expected) == len(modis["detecciones"]), (modis["n_24h"], len(expected))
+    assert modis["terra"] == int((expected["satellite"] == "Terra").sum())
+    assert modis["aqua"] == int((expected["satellite"] == "Aqua").sum())
+    assert modis["terra"] + modis["aqua"] == modis["n_24h"]
+    assert int((inside & window).sum()) + int((~inside).sum()) + int((inside & ~window).sum()) == len(frame)
+    want = sorted((round(r.latitude, 5), round(r.longitude, 5), r.acq_date, r.acq_time.zfill(4), r.satellite)
+                  for r in expected.itertuples())
+    got = sorted((d["lat"], d["lon"], d["fecha"], d["hora_utc"].replace(":", ""), d["sat"]) for d in modis["detecciones"])
+    assert want == got
+    for item in modis["detecciones"]:
+        instant = datetime.fromisoformat(item["fecha"] + "T" + item["hora_utc"] + ":00+00:00")
+        assert start < instant <= download and item["estado"] in state_ids, item
+        assert isinstance(item["conf"], int) and 0 <= item["conf"] <= 100, item
+        assert item["frp"] is None or math.isfinite(item["frp"])
+    last = expected["instant"].max()
+    assert modis["ultima_utc"] == (None if pd.isna(last) else last.isoformat().replace("+00:00", "Z"))
+    return (f"MODIS NRT en México, misma ventana de 24 h: {modis['n_24h']} "
+            f"(Terra {modis['terra']}, Aqua {modis['aqua']}) de {len(frame)} filas crudas")
+
+
+def goes_latest(snapshot):
+    if not extra_ok("GOES_NRT"):
+        assert snapshot["goes"] is None and "GOES_NRT" in snapshot["fuentes_extra_error"]
+        return "GOES no se descargó en esta captura: campo nulo y error anotado"
+    frame = extra_frame("GOES_NRT")
+    assert set(frame["satellite"]) <= {"G18", "G18FRP", "G19", "G19FRP"}, set(frame["satellite"])
+    lower = download - timedelta(hours=3)
+    expected = frame[(frame["state_id"] != "OUT") & (frame["instant"] > pd.Timestamp(lower))
+                     & (frame["instant"] <= pd.Timestamp(download))]
+    goes = snapshot["goes"]
+    assert goes["fuente"] == "GOES_NRT" and goes["ventana_horas"] == 3 and goes["celda_grados"] == .02
+    assert goes["filas_ventana"] == len(expected), (goes["filas_ventana"], len(expected))
+    for sat in ("G18", "G18FRP", "G19", "G19FRP"):
+        assert goes["por_satelite"][sat] == int((expected["satellite"] == sat).sum()), sat
+    last = expected["instant"].max()
+    assert goes["ultima_utc"] == (None if pd.isna(last) else last.isoformat().replace("+00:00", "Z"))
+    cells = expected.assign(gi=np.floor(expected["latitude"] / .02).astype("int64"),
+                            gj=np.floor(expected["longitude"] / .02).astype("int64"))
+    latest = cells.groupby(["gi", "gj"])["instant"].max()
+    assert len(goes["puntos"]) == len(latest), (len(goes["puntos"]), len(latest))
+    assert sum(p["n"] for p in goes["puntos"]) == goes["filas_ventana"]
+    seen = set()
+    for point in goes["puntos"]:
+        key = (math.floor(point["lat"] / .02), math.floor(point["lon"] / .02))
+        assert key not in seen, point
+        seen.add(key)
+        instant = pd.Timestamp(point["fecha"] + "T" + point["hora_utc"] + ":00+00:00")
+        assert instant == latest[key], (point, latest[key])
+        assert set(point["sats"]) <= {"G18", "G18FRP", "G19", "G19FRP"}
+    return (f"GOES 3 h en México: {goes['filas_ventana']} filas "
+            f"({', '.join(f'{k} {v}' for k, v in goes['por_satelite'].items())}) → "
+            f"{len(goes['puntos'])} celdas de 0.02°; última {goes['ultima_utc']}")
+
+
+def extra_failure_isolated():
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import fetch_live
+    from live_snapshot import read_extra
+    original = fetch_live.urllib.request.urlopen
+
+    def broken(*args, **kwargs):
+        raise OSError("sin red")
+    fetch_live.urllib.request.urlopen = broken
+    try:
+        texts, status = fetch_live.fetch_extra("x" * 32)
+    finally:
+        fetch_live.urllib.request.urlopen = original
+    assert texts == {} and all(not v["ok"] for v in status.values()) and set(status) == {"MODIS_NRT", "GOES_NRT"}
+    assert read_extra({"fuentes_extra": status}, "MODIS_NRT", None, features) is None
+    assert read_extra({}, "GOES_NRT", None, features) is None
+    return "una fuente extra caída no lanza error, queda anotada y el pipeline no lee su CSV viejo"
+
+
 check("determinismo", determinism)
 snapshot = load_snapshot() if snapshot_path.exists() else {}
 frame = raw_frame()
@@ -172,5 +282,8 @@ check("ventana y reconciliación", lambda: window_and_reconciliation(frame, snap
 check("bordes de nivel", classification_edges)
 check("línea base y media", lambda: baseline_and_mean(frame, snapshot))
 check("JSON y tamaño", lambda: valid_json_and_size(snapshot))
+check("MODIS real contra CSV", lambda: modis_real(snapshot))
+check("GOES 3 h contra CSV", lambda: goes_latest(snapshot))
+check("falla aislada de fuentes extra", extra_failure_isolated)
 print(f"RESULTADO: {failures} fallo(s)")
 sys.exit(1 if failures else 0)

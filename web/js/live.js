@@ -2,7 +2,7 @@ import { VIEW, project, unproject, geometryToPath } from './geo.js';
 import { number } from './format.js';
 import { ensureFlameDefs } from './flame.js';
 import { t, formatDate, formatDay, formatClock, formatLocalTime, formatUtcTime, regionName } from './i18n.js';
-import { clusterSummary, worldviewUrl, focusView, pickBox } from './nearby.js';
+import { clusterSummary, worldviewUrl, focusView, pickBox, snapshotWindow } from './nearby.js';
 import { predictPasses, firstPass, CENTER_MX } from './passes.js';
 import { buildFireBlock } from './fire.js';
 import { FRP_CUTS, frpClass, clusterHeight, clusterDetections, clusterAttrs, detectionTime, satellitePasses, modisProbabilities, modisExpected, modisSelection, timelineBins, timelineFraction, timelineSeek, timelineKey, replaySchedule, scheduleTime, scheduleProgress, passNow } from './replay.js';
@@ -29,6 +29,21 @@ export function validLiveSnapshot(d, stateIds) {
   if(stateIds.length!==32||Object.keys(d.estados).length!==32||!stateIds.every(id=>validRegion(d.estados[id])))return false;
   return d.detecciones.length===d.n_detecciones_24h&&d.detecciones.every(x=>x&&typeof x==='object'&&Number.isFinite(x.lat)&&Number.isFinite(x.lon)&&/^\d{4}-\d\d-\d\d$/.test(x.fecha??'')&&/^\d\d:\d\d$/.test(x.hora_utc??'')&&['N20','N21'].includes(x.sat)&&(x.frp===null||Number.isFinite(x.frp))&&['l','n','h'].includes(x.conf)&&stateIds.includes(x.estado));
 }
+// Campos opcionales de la captura (fuentes extra). Si faltan o no cumplen, se ignoran y "Hoy"
+// sigue con VIIRS: nunca tumban la vista.
+const stampOk=v=>typeof v==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(v)&&Number.isFinite(Date.parse(v));
+const rowOk=x=>x&&typeof x==='object'&&Number.isFinite(x.lat)&&Number.isFinite(x.lon)&&/^\d{4}-\d\d-\d\d$/.test(x.fecha??'')&&/^\d\d:\d\d$/.test(x.hora_utc??'');
+export function validModis(m,stateIds) {
+  if(!m||typeof m!=='object'||m.fuente!=='MODIS_NRT'||m.ventana_horas!==24||!Array.isArray(m.detecciones))return false;
+  if(![m.n_24h,m.terra,m.aqua].every(Number.isInteger)||m.terra+m.aqua!==m.n_24h||m.detecciones.length!==m.n_24h)return false;
+  if(!(m.ultima_utc===null&&m.n_24h===0)&&!stampOk(m.ultima_utc))return false;
+  return m.detecciones.every(x=>rowOk(x)&&['Terra','Aqua'].includes(x.sat)&&(x.frp===null||Number.isFinite(x.frp))&&Number.isInteger(x.conf)&&stateIds.includes(x.estado));
+}
+export function validGoes(g) {
+  if(!g||typeof g!=='object'||g.fuente!=='GOES_NRT'||!Number.isInteger(g.ventana_horas)||!Number.isInteger(g.filas_ventana)||!Array.isArray(g.puntos))return false;
+  if(!(g.ultima_utc===null&&g.puntos.length===0)&&!stampOk(g.ultima_utc))return false;
+  return g.puntos.every(x=>rowOk(x)&&Number.isInteger(x.n)&&x.n>0&&Array.isArray(x.sats));
+}
 // Antigüedad en horas (menos de 48 h) o en días, para el aviso de captura vieja.
 export function ageText(hours) { const h=Math.floor(hours);if(h<48)return t('live.ageHours',{n:number(h)});return t('live.ageDays',{n:number(Math.floor(h/24))}); }
 export function staleNotice(generado,now=Date.now()) { return isStale(generado,now)?t('live.stale',{date:formatUtc(generado),age:ageText(ageHours(generado,now))}):null; }
@@ -49,8 +64,9 @@ let resizeTimer;
 let resizeBound=false;
 let replay=null;
 // Punto y modo "elegir en el mapa" de "Vi un fuego": sobreviven al redibujo por cambio de idioma.
-const mapState={you:null,pick:null};
+const mapState={you:null,pick:null,goesOff:false};
 function legendFlame(height,className) { const icon=svgNode('svg',{viewBox:'0 0 20 28',width:(height*20/28).toFixed(1),height,'aria-hidden':'true'});icon.append(svgNode('use',{href:'#flame',class:`live-flame ${className}`}));return icon; }
+function legendSquare() { const icon=svgNode('svg',{viewBox:'0 0 20 20',width:20,height:20,'aria-hidden':'true'});icon.append(svgNode('rect',{x:5,y:5,width:10,height:10,class:'legend-goes'}));return icon; }
 function legendRing() { const icon=svgNode('svg',{viewBox:'-12 -12 24 24',width:20,height:20,'aria-hidden':'true'});icon.append(svgNode('circle',{r:9,class:'legend-ring'}));return icon; }
 // Leyenda compacta: una línea por canal, con iconos y rótulos cortos.
 function legendRow(title,items) {
@@ -87,12 +103,12 @@ function paintCluster(c,parts,s,k) {
   parts.count.setAttribute('transform',a.count.transform);parts.count.textContent=s.n>=3?number(s.n):'';
 }
 // Mapa fijo (estado final) para la comparación VIIRS / MODIS.
-function drawStaticMap(svg,points) {
+function drawStaticMap(svg,points,solid=false) {
   const width=svg.getBoundingClientRect().width;if(!width)return false;
   const k=VIEW.width/width;
   svg.querySelector('.live-clusters')?.remove();
   const layer=svgNode('g',{class:'live-clusters'});
-  for(const c of clusterDetections(points,k)){const parts=clusterNode(c,points,k,false);const n20=c.members.filter(i=>points[i].sat==='N20').length;paintCluster(c,parts,{n:c.n,n20,n21:c.n-n20,frpMax:c.frpMax},k);layer.append(parts.group);}
+  for(const c of clusterDetections(points,k)){const parts=clusterNode(c,points,k,false);const n20=solid?c.n:c.members.filter(i=>points[i].sat==='N20').length;paintCluster(c,parts,{n:c.n,n20,n21:c.n-n20,frpMax:c.frpMax},k);layer.append(parts.group);}
   svg.append(layer);return true;
 }
 function mapSvg(geo,titleText,descText,idBase) {
@@ -177,7 +193,7 @@ function startReplay(ui,dets,passes,tl) {
     const layer=svgNode('g',{class:'live-clusters'});
     r.clusters=clusterDetections(dets,r.kc);r.memberOf=[];
     r.clusters.forEach((c,ci)=>{c.members.forEach(i=>{r.memberOf[i]=ci;});Object.assign(c,clusterNode(c,dets,r.kc,true));layer.append(c.group);c.group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(ci);}});});
-    ui.svg.append(dotsLayer,layer,overlay);
+    ui.svg.append(dotsLayer,layer,goesLayer,overlay);
     return true;
   }
   function build() {
@@ -216,6 +232,10 @@ function startReplay(ui,dets,passes,tl) {
     dotsLayer.replaceChildren(...(r.focus?.members??[]).map(i=>svgNode('circle',{class:'live-focus-dot',cx:dets[i].x.toFixed(2),cy:dets[i].y.toFixed(2),r:(3.5*u).toFixed(3)})));
     if(r.you){const [x,y]=project(r.you.lon,r.you.lat);marks.push(svgNode('circle',{class:'live-you',cx:x.toFixed(2),cy:y.toFixed(2),r:(8*u).toFixed(3)}),svgNode('circle',{class:'live-you-dot',cx:x.toFixed(2),cy:y.toFixed(2),r:(2.5*u).toFixed(3)}));}
     overlay.replaceChildren(...marks);
+    // GOES: un cuadro hueco de 9 px por celda de 0.02°, encima de las llamas para que se vea lo más
+    // reciente, pero sin capturar toques (pointer-events:none en CSS).
+    const side=9*u;
+    goesLayer.replaceChildren(...ui.goes.map(g=>svgNode('rect',{class:'live-goes',x:(g.x-side/2).toFixed(3),y:(g.y-side/2).toFixed(3),width:side.toFixed(3),height:side.toFixed(3)})));
   }
   function applyView() {
     const v=r.vb;ui.svg.setAttribute('viewBox',`${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`);
@@ -245,6 +265,10 @@ function startReplay(ui,dets,passes,tl) {
     if(first!=null)r.clusters.find(c=>c.members.includes(first))?.group.focus({preventScroll:true});
   }
   const overlay=svgNode('g',{class:'live-overlay','aria-hidden':'true'}),dotsLayer=svgNode('g',{class:'live-focus-dots','aria-hidden':'true'});
+  const goesLayer=svgNode('g',{class:'live-goes-layer','aria-hidden':'true'});
+  const showGoes=on=>{goesLayer.setAttribute('display',on?'inline':'none');ui.goesToggle?.setAttribute('aria-pressed',String(on));};
+  showGoes(!mapState.goesOff);
+  ui.goesToggle?.addEventListener('click',()=>{mapState.goesOff=!mapState.goesOff;showGoes(!mapState.goesOff);});
   r.rebuild=()=>{const at=r.time;if(build()){goTo(at,false);applyView();markSelected();}};
   if(!build())return;
   applyView();
@@ -290,12 +314,15 @@ function startReplay(ui,dets,passes,tl) {
   r.observer.observe(ui.frame);
 }
 // Comparación VIIRS / MODIS: dos mapas fijos. En móvil, pestañas.
-function buildCompare(geo,dets,selection,expected) {
+// Con MODIS real (modis), el panel MODIS muestra sus detecciones con sus coordenadas; la
+// estimación con probabilidades de Aqua solo queda si la captura no trae MODIS.
+function buildCompare(geo,dets,selection,expected,modis,win) {
   const wrap=node('div','live-compare');wrap.dataset.active='modis';
   wrap.append(node('h3','live-compare-title',t('live.modisToggle')));
-  const tabs=node('div','live-compare-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label',t('live.modisToggle'));
-  const subset=selection.map(i=>dets[i]);
-  const panels=[['viirs',t('live.compareViirs'),number(dets.length),dets],['modis',t('live.compareModis'),t('live.approx',{n:number(expected)}),subset]].map(([id,label,figure,points])=>{
+  const tabs=node('div','live-compare-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label',t('live.modisToggle'));wrap.append(tabs);
+  const subset=modis?modis.detecciones.map(d=>{const [x,y]=project(d.lon,d.lat);return {x,y,frp:d.frp,sat:d.sat};}):selection.map(i=>dets[i]);
+  const modisPanel=modis?['modis',t('live.compareModisReal'),number(modis.n_24h),subset]:['modis',t('live.compareModis'),t('live.approx',{n:number(expected)}),subset];
+  const panels=[['viirs',t('live.compareViirs'),number(dets.length),dets],modisPanel].map(([id,label,figure,points])=>{
     const tab=node('button','live-compare-tab');tab.type='button';tab.id=`compare-tab-${id}`;tab.setAttribute('role','tab');tab.setAttribute('aria-controls',`compare-panel-${id}`);
     tab.textContent=id==='viirs'?'VIIRS':'MODIS';tabs.append(tab);
     const panel=node('div',`live-compare-panel compare-${id}`);panel.id=`compare-panel-${id}`;panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',`compare-tab-${id}`);
@@ -307,10 +334,16 @@ function buildCompare(geo,dets,selection,expected) {
   const select=id=>{wrap.dataset.active=id;for(const p of panels){p.tab.setAttribute('aria-selected',String(p.id===id));p.tab.tabIndex=p.id===id?0:-1;}draw();};
   for(const p of panels){p.tab.addEventListener('click',()=>select(p.id));p.tab.addEventListener('keydown',e=>{if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;e.preventDefault();const other=panels.find(q=>q!==p);select(other.id);other.tab.focus();});}
   const grid=node('div','live-compare-grid');grid.append(...panels.map(p=>p.panel));
-  const note=node('p','live-modis-note',t('live.modisNote'));
-  const result=node('p','visually-hidden',t('live.modisResult',{n:number(expected),total:number(dets.length)}));
-  wrap.append(tabs,grid,result,note);
-  function draw(){for(const p of panels)drawStaticMap(p.svg,p.points);}
+  if(modis){
+    const lead=node('p','live-modis-real',t('live.modisReal',{n:number(modis.n_24h),terra:number(modis.terra),aqua:number(modis.aqua),total:number(dets.length)}));
+    const note=node('p','live-modis-note',t('live.modisRealNote',{from:formatUtc(new Date(win.from).toISOString()),to:formatUtc(new Date(win.to).toISOString())}));
+    wrap.insertBefore(lead,tabs);wrap.append(grid,note);
+  } else {
+    const note=node('p','live-modis-note',t('live.modisNote'));
+    const result=node('p','visually-hidden',t('live.modisResult',{n:number(expected),total:number(dets.length)}));
+    wrap.append(grid,result,note);
+  }
+  function draw(){for(const p of panels)drawStaticMap(p.svg,p.points,!!modis&&p.id==='modis');}
   select('modis');
   return {wrap,draw};
 }
@@ -344,11 +377,15 @@ function renderLive(snapshot,names,geo,health,notice,tle) {
   }
   const dets=snapshot.detecciones.map(d=>{const [x,y]=project(d.lon,d.lat);return {x,y,frp:d.frp,sat:d.sat,time:detectionTime(d)};});
   const passes=satellitePasses(snapshot.detecciones),tl=timelineBins(snapshot.detecciones);
+  const goes=validGoes(snapshot.goes)?snapshot.goes:null,modis=validModis(snapshot.modis,Object.keys(snapshot.estados))?snapshot.modis:null;
+  const goesPoints=(goes?.puntos??[]).map(g=>{const [x,y]=project(g.lon,g.lat);return {x,y};});
   const bar=node('div','live-map-bar');
   const clockText=node('p','live-clock'),clockTime=node('span','live-clock-time');clockText.append(clockTime);
   const controls=node('div','live-controls');
   const play=node('button','live-play');play.type='button';
   const reset=node('button','live-reset',t('focus.reset'));reset.type='button';reset.hidden=true;controls.append(reset,play);
+  let goesToggle=null;
+  if(goes?.puntos.length){goesToggle=node('button','live-goes-toggle',t('live.goesToggle'));goesToggle.type='button';controls.append(goesToggle);}
   bar.append(clockText,controls);
   const slider=node('div','live-timeline');slider.tabIndex=0;slider.setAttribute('role','slider');slider.setAttribute('aria-label',t('live.timelineLabel'));slider.setAttribute('aria-valuemin','0');slider.setAttribute('aria-valuemax',String(Math.round((tl.end-tl.start)/60000)));
   const timelineBox=node('div','live-timeline-svg');slider.append(timelineBox);
@@ -359,19 +396,23 @@ function renderLive(snapshot,names,geo,health,notice,tle) {
     legendRow(t('live.legendColor'),[[legendFlame(18,'live-n20 flame-low'),t('live.frpTickLow',{a:FRP_CUTS[0]}),t('live.frpLow',{a:FRP_CUTS[0]})],[legendFlame(18,'live-n20 flame-mid'),t('live.frpTickMid',{a:FRP_CUTS[0],b:FRP_CUTS[1]}),t('live.frpMid',{a:FRP_CUTS[0],b:FRP_CUTS[1]})],[legendFlame(18,'live-n20 flame-high'),t('live.frpTickHigh',{b:FRP_CUTS[1]}),t('live.frpHigh',{b:FRP_CUTS[1]})]]),
     legendRow(t('live.legendSize'),[1,5,20].map(n=>[legendFlame(clusterHeight(n),'live-n20 flame-mid'),number(n),t(n===1?'live.sizeOne':'live.sizeMany',{n:number(n)})])),
     legendRow(t('live.legendTime'),[[legendRing(),t('live.legendFresh')],[legendFlame(18,'live-n20 flame-mid legend-seen'),t('live.legendSeen')]]));
+  if(goes?.puntos.length)legend.append(legendRow(t('live.legendGoes'),[[legendSquare(),t('live.goesLegendItem',{h:number(goes.ventana_horas)})]]));
   const overlap=health?.mx?.overlap_probability;
   const probabilities=Array.isArray(overlap)?modisProbabilities(snapshot.detecciones,overlap):[];
   const expected=modisExpected(probabilities);
-  const compare=expected!=null?buildCompare(geo,dets,modisSelection(probabilities,expected),expected):null;
+  const compare=modis||expected!=null?buildCompare(geo,dets,expected!=null?modisSelection(probabilities,expected):[],expected,modis,snapshotWindow(snapshot)):null;
   const detectionTable=node('div','live-detections');const detectionButton=node('button','secondary',t('live.showDetections',{shown:Math.min(snapshot.detecciones.length,50),total:snapshot.detecciones.length}));detectionButton.type='button';detectionButton.setAttribute('aria-expanded','false');detectionTable.append(detectionButton);const table=node('table');table.hidden=true;table.append(node('caption','',t('live.tableCaption')));const header=table.createTHead().insertRow();for(const key of ['state','sensor','dateUtc','frp'])header.append(node('th','',t(`live.${key}`)));const body=table.createTBody();snapshot.detecciones.slice().sort((a,b)=>(b.frp??0)-(a.frp??0)).slice(0,50).forEach(d=>{const row=body.insertRow();for(const value of [regionName(d.estado,names),d.sat,`${d.fecha} ${d.hora_utc}`,d.frp==null?t('common.noData'):number(d.frp)])row.append(node('td','',value));});detectionTable.append(table);detectionButton.addEventListener('click',()=>{table.hidden=!table.hidden;detectionButton.setAttribute('aria-expanded',String(!table.hidden));});
   const ranking=node('div','live-ranking');ranking.append(node('h3','',t('live.rankTitle')));if(!s.ranking.length)ranking.append(node('p','',t('live.noElevated')));
   else {const list=node('ol','live-rank-list');s.ranking.forEach(item=>{const row=node('li','live-rank-row');row.append(node('strong','',item.name),node('span','',rankingComparison(item)),node('span',`live-level level-${item.nivel}`,levelBadge(item.nivel)));list.append(row);});ranking.append(list);}
-  const method=node('details','live-method');method.append(node('summary','',t('live.methodTitle')),node('p','',t('live.flameNote')));for(let i=1;i<=6;i++)method.append(node('p','',t(`live.method.${i}`)));method.append(node('p','',t('live.rankNote')));
+  const method=node('details','live-method');method.append(node('summary','',t('live.methodTitle')),node('p','',t('live.flameNote')));for(let i=1;i<=6;i++)method.append(node('p','',t(`live.method.${i}`)));if(modis)method.append(node('p','',t('live.methodModis')));if(goes)method.append(node('p','',t('live.methodGoes')));method.append(node('p','',t('live.rankNote')));
   const after=node('div','live-after');after.append(ranking,detectionTable,method);
-  const mapBlock=node('div','live-map-block');if(notice)mapBlock.append(node('p','live-stale',notice));mapBlock.append(bar,frame,focusPanel,slider,legend);
+  const mapBlock=node('div','live-map-block');if(notice)mapBlock.append(node('p','live-stale',notice));
+  // GOES: hora real de su detección más reciente y de la captura, porque "lo más nuevo" depende de cuándo se bajó.
+  if(goes){const line=node('p','live-goes-status');line.append(node('strong','',t('live.goesLead')),' ',goes.ultima_utc?t('live.goesLatest',{time:goes.ultima_utc.slice(11,16),date:formatDay(goes.ultima_utc.slice(0,10)),n:number(goes.puntos.length),h:number(goes.ventana_horas)}):t('live.goesNone',{h:number(goes.ventana_horas)}));mapBlock.append(line);legend.append(node('p','live-legend-note',t('live.goesCapture',{capture:formatUtc(snapshot.generado)})));}
+  mapBlock.append(bar,frame,focusPanel,slider,legend);
   const hero=node('div','live-hero');hero.append(top,mapBlock);
   target.replaceChildren(...[hero,compare?.wrap,after].filter(Boolean));
-  startReplay({svg,frame,play,reset,pickHint,onFocus:showFocus,clockTime,passing,passingText,slider,timeline:timelineBox,countNow,countOf},dets,passes,tl);
+  startReplay({svg,frame,play,reset,pickHint,onFocus:showFocus,clockTime,passing,passingText,slider,timeline:timelineBox,countNow,countOf,goes:goesPoints,goesToggle},dets,passes,tl);
   if(replay){replay.compare=compare;if(mapState.you)replay.api?.showPoint(mapState.you);if(mapState.pick)replay.api?.startPick(mapState.pick);}
   compare?.draw();
 }

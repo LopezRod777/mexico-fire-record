@@ -36,6 +36,18 @@ export function fireVerdict(point, snapshot, now, maxAgeH = 6) {
   return { ...result, kind: result.matches.length ? 'near' : 'none', ageH };
 }
 
+// Pista extra de GOES: la celda GOES más cercana a ≤ radio km (solo si la captura la trae).
+// Es una detección de calor de píxel ~2 km, nunca una confirmación.
+export function nearestGoes(point, goes, radiusKm = NEAR_KM) {
+  if (!goes || !Array.isArray(goes.puntos)) return null;
+  let best = null;
+  for (const g of goes.puntos) {
+    const km = haversineKm(point.lat, point.lon, g.lat, g.lon);
+    if (km <= radiusKm && (!best || km < best.km || (km === best.km && detectionTime(g) > detectionTime(best.g)))) best = { g, km };
+  }
+  return best;
+}
+
 // Foto contra teléfono: si difieren más de 1 km se muestran ambas y se deja elegir.
 export function comparePoints(phone, photo, maxKm = PICK_MAX_KM) {
   if (!phone || !photo) return { conflict: false, km: null };

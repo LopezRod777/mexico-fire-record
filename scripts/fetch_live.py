@@ -1,8 +1,10 @@
-"""Descarga la capa casi en tiempo real (VIIRS NOAA-20 y NOAA-21 NRT) de NASA FIRMS.
+"""Descarga la capa casi en tiempo real de NASA FIRMS: VIIRS NOAA-20 y NOAA-21 NRT (base de
+la captura) y, como fuentes extra, MODIS NRT (Terra y Aqua) y GOES NRT (GOES-18 y GOES-19).
 
 Lee la llave de la variable de entorno FIRMS_MAP_KEY (nunca la imprime) y escribe
-data/live/raw/<fuente>.csv y data/live/raw/fetch_info.json. Si una descarga falla o
-no trae el encabezado esperado, termina con error y no toca los archivos actuales.
+data/live/raw/<fuente>.csv y data/live/raw/fetch_info.json. Si una descarga VIIRS falla o
+no trae el encabezado esperado, termina con error y no toca los archivos actuales. Si falla
+una fuente extra, se anota en fetch_info.json (fuentes_extra) y la captura de VIIRS sigue.
 """
 import csv
 import io
@@ -19,6 +21,42 @@ BBOX = [-118.4, 14.5, -86.7, 32.7]
 DAY_RANGE = 2
 SOURCES = ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT"]
 HEADER = "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time"
+# Fuentes extra con su encabezado completo esperado (verificado contra la API el 15 nov 2026).
+EXTRA = {
+    "MODIS_NRT": "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,"
+                 "confidence,version,bright_t31,frp,daynight",
+    "GOES_NRT": "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,"
+                "confidence,version,bright_ti5,frp,daynight",
+}
+
+
+def area_url(key: str, source: str) -> str:
+    return (f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/{source}/"
+            f"{','.join(str(v) for v in BBOX)}/{DAY_RANGE}")
+
+
+def fetch_extra(key: str) -> tuple[dict, dict]:
+    """Descarga las fuentes extra. Nunca lanza: cada fallo queda anotado y se sigue."""
+    texts, status = {}, {}
+    for source, header in EXTRA.items():
+        try:
+            with urllib.request.urlopen(area_url(key, source), timeout=60) as response:
+                text = response.read().decode("utf-8")
+        except Exception as error:  # sin la URL: lleva la llave
+            status[source] = {"ok": False, "error": f"descarga fallida ({type(error).__name__})"}
+            print(f"{source}: descarga fallida ({type(error).__name__}); se sigue sin ella", file=sys.stderr)
+            continue
+        if text.splitlines()[:1] != [header]:
+            status[source] = {"ok": False, "error": "respuesta sin el encabezado esperado"}
+            print(f"{source}: respuesta sin el encabezado esperado; se sigue sin ella", file=sys.stderr)
+            continue
+        rows = list(csv.DictReader(io.StringIO(text)))
+        dates = sorted({row["acq_date"] for row in rows})
+        status[source] = {"ok": True, "filas": len(rows),
+                          "fecha_min": dates[0] if dates else None,
+                          "fecha_max": dates[-1] if dates else None}
+        texts[source] = text
+    return texts, status
 
 
 def main() -> int:
@@ -29,10 +67,8 @@ def main() -> int:
     downloaded = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     texts, info = {}, {"bbox": BBOX, "day_range": DAY_RANGE, "fuentes": {}}
     for source in SOURCES:
-        url = (f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/{source}/"
-               f"{','.join(str(v) for v in BBOX)}/{DAY_RANGE}")
         try:
-            with urllib.request.urlopen(url, timeout=60) as response:
+            with urllib.request.urlopen(area_url(key, source), timeout=60) as response:
                 text = response.read().decode("utf-8")
         except Exception as error:  # sin la URL: lleva la llave
             print(f"{source}: descarga fallida ({type(error).__name__})", file=sys.stderr)
@@ -50,12 +86,16 @@ def main() -> int:
                                    "fecha_max": dates[-1],
                                    "ultima_hora_utc_del_ultimo_dia": last}
         texts[source] = text
+    extra_texts, info["fuentes_extra"] = fetch_extra(key)
+    texts.update(extra_texts)
     info["descargado_utc"] = downloaded
     for source, text in texts.items():
         (RAW / f"{source}.csv").write_text(text, encoding="utf-8")
     (RAW / "fetch_info.json").write_text(json.dumps(info, indent=1, ensure_ascii=False),
                                          encoding="utf-8")
-    print(json.dumps({k: v["filas"] for k, v in info["fuentes"].items()}), downloaded)
+    print(json.dumps({k: v["filas"] for k, v in info["fuentes"].items()}),
+          json.dumps({k: v.get("filas", v.get("error")) for k, v in info["fuentes_extra"].items()}),
+          downloaded)
     return fetch_tle(downloaded)
 
 
