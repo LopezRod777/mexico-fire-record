@@ -306,7 +306,17 @@ function startReplay(ui,dets,passes,tl) {
   ui.slider.addEventListener('pointermove',e=>{if(r.dragging)seekTo(fromPointer(e));});
   for(const type of ['pointerup','pointercancel'])ui.slider.addEventListener(type,()=>{r.dragging=false;});
   ui.slider.addEventListener('keydown',e=>{const next=timelineKey(e.key,Math.min(r.time,tl.end),tl.start,tl.end);if(next==null)return;e.preventDefault();seekTo(next);});
-  ui.frame.addEventListener('pointerenter',()=>{r.hoverPaused=true;});
+  // Pausa con el ratón encima de una llama visible, y solo si el ratón se movió de verdad: al hacer
+  // scroll con el cursor quieto, Safari y Chrome mandan pointerenter sin movimiento y la reproducción
+  // se quedaba congelada con el botón en "Pausa".
+  let px=null,py=null,moved=false;
+  addEventListener('pointermove',e=>{moved=e.clientX!==px||e.clientY!==py;px=e.clientX;py=e.clientY;},{capture:true,signal:r.abort.signal});
+  ui.frame.addEventListener('pointermove',e=>{
+    if(e.pointerType==='touch'||!moved)return;
+    const g=e.target.closest?.('.live-cluster'),was=r.hoverPaused;
+    r.hoverPaused=!!(g&&r.clusters.find(c=>c.group===g)?.state.shown);
+    if(was&&!r.hoverPaused)kick();
+  });
   ui.frame.addEventListener('pointerleave',()=>{r.hoverPaused=false;kick();});
   ui.frame.addEventListener('focusin',()=>{r.hoverPaused=true;});
   ui.frame.addEventListener('focusout',()=>{r.hoverPaused=false;kick();});
