@@ -30,7 +30,8 @@ export function pointInRings(lon, lat, rings) {
   return inside;
 }
 
-// Trazo de humo más reciente que cubre el punto, o null. Null no significa "sin humo": de noche
+// Trazo de humo más reciente que cubre el punto (con el día de inicio y el de fin, que difieren si
+// cruza la medianoche UTC), o null. Null no significa "sin humo": de noche
 // y con nubes no se traza, así que quien llama no dice nada en ese caso.
 export function smokeAt(point, humo) {
   if (!point || !validSmoke(humo)) return null;
@@ -39,7 +40,7 @@ export function smokeAt(point, humo) {
     if (!pointInRings(point.lon, point.lat, p.anillos)) continue;
     if (!best || p.fin > best.fin || (p.fin === best.fin && p.inicio > best.inicio)) best = p;
   }
-  return best && { from: best.inicio.slice(11, 16), to: best.fin.slice(11, 16), date: best.inicio.slice(0, 10), densidad: best.densidad };
+  return best && { from: best.inicio.slice(11, 16), to: best.fin.slice(11, 16), date: best.inicio.slice(0, 10), dateTo: best.fin.slice(0, 10), densidad: best.densidad };
 }
 
 // Áreas extensas de bruma que la captura dejó fuera (0 si la captura no lo dice).

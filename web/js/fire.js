@@ -1,13 +1,16 @@
-// "Vi un fuego": ubicación del teléfono (solo al tocar el botón), foto opcional con GPS leída
-// en el navegador, búsqueda de detecciones a ≤ 5 km, próxima cobertura del barrido y mensaje
-// para reportar. Nada se envía solo.
+// "Vi un fuego": ubicación del teléfono (solo al tocar el botón), foto opcional (elegida o tomada con
+// la cámara) con GPS leída en el navegador, búsqueda de detecciones a ≤ 5 km, próxima cobertura del
+// barrido y mensaje para reportar. Nada se envía solo: la foto vive en memoria y solo sale si la
+// persona toca "Compartir reporte con foto" y elige una app en la hoja de compartir del sistema.
 import { project, geometryToPath } from './geo.js';
-import { t, formatNumber, formatDate, formatDay, formatLocalTime, formatUtcTime } from './i18n.js';
+import { t, formatNumber, formatDate, formatDay, formatLocalTime, formatUtcTime, regionName } from './i18n.js';
 import { readJpegGps, PHOTO_MAX_BYTES, EXIF_READ_BYTES } from './exif.js';
 import { fireVerdict, comparePoints, mapUrl, nearestGoes, NEAR_KM } from './nearby.js';
 import { predictPasses } from './passes.js';
 import { ageText, validGoes } from './live.js';
 import { smokeAt } from './smoke.js';
+import { describePoint, decodePlaces, coversPoint, PLACE_KM } from './place.js';
+import { loadData } from './data.js';
 
 const NS = 'http:' + '//www.w3.org/2000/svg';
 const SAT_NAMES = { N20: 'NOAA-20', N21: 'NOAA-21' };
@@ -22,7 +25,20 @@ const PHOTO_ALONE = { 'fire.photoNoGps': 'fire.photoNoGpsAlone', 'fire.photoBad'
 export function photoNoteKey(key, alone) { return alone ? PHOTO_ALONE[key] ?? key : key; }
 
 // Estado que sobrevive al cambio de idioma (la sección "Hoy" se vuelve a dibujar).
-const state = { open: false, geo: 'idle', phone: null, photo: null, photoMsg: null, manual: null, choice: null };
+const state = { open: false, geo: 'idle', phone: null, photo: null, photoMsg: null, file: null, manual: null, choice: null, places: null };
+
+// Frase del lugar (describePoint) para la página ('fire.where') o para el mensaje ('fire.msgWhere').
+// Sin descripción no dice nada: fuera de México no se inventa un lugar.
+export function placeText(desc, prefix) {
+  if (!desc) return '';
+  const state = regionName(desc.stateId, { [desc.stateId]: desc.stateName });
+  if (desc.kind === 'state') return t(`${prefix}State`, { state });
+  if (desc.kind === 'far') return t(`${prefix}Far`, { state, km: PLACE_KM });
+  const vars = { dir: t(`fire.dir.${desc.dir}`), place: desc.place, state };
+  if (desc.kind === 'in') return t(`${prefix}In`, vars);
+  // La precisión que el dato permite: cientos de metros bajo 1 km y un decimal de 1 a 5 km.
+  return desc.km < 0.95 ? t(`${prefix}NearM`, { ...vars, m: Math.round(desc.km * 10) * 100 }) : t(`${prefix}Near`, { ...vars, km: km(desc.km) });
+}
 
 function miniMap(geo, point, matches) {
   const [px, py] = project(point.lon, point.lat);
@@ -74,19 +90,21 @@ function fitRows(msg) { if (!msg?.clientWidth) return; const cs = getComputedSty
 
 // Reporte: 911 como acción principal, copiar y abrir el mapa a la vista. CONAFOR, la nota de qué se
 // comparte y el texto del mensaje van a "Más detalles" (more).
+// Devuelve el bloque y setWhere, que rehace el mensaje cuando cambia la frase del lugar (las
+// localidades llegan después del veredicto) sin volver a dibujar nada.
 function reportBlock(point, verdict, more) {
   const wrap = node('div', 'fire-report');
   wrap.append(node('h4', '', t('fire.reportTitle')));
   const call = node('a', 'fire-call', t('fire.call911')); call.href = 'tel:911';
   const conafor = node('a', 'fire-conafor', t('fire.conafor')); conafor.href = 'tel:8007370000';
   const url = mapUrl(point.lat, point.lon);
-  const message = t('fire.msg', { coords: coords(point), url, status: reportStatus(verdict) });
+  let message = '';
   const copy = node('button', 'fire-copy', t('fire.copy')); copy.type = 'button';
   const openMap = node('a', 'fire-open-map', t('fire.openMap')); openMap.href = url; openMap.target = '_blank'; openMap.rel = 'noopener noreferrer';
   const actions = node('div', 'fire-share'); actions.append(copy, openMap);
   const share = node('p', 'fire-share-note', t('fire.shareNote'));
   const label = node('label', 'fire-message-label', t('fire.messageLabel')); label.htmlFor = 'fire-message';
-  const text = node('textarea', 'fire-message'); text.id = 'fire-message'; text.readOnly = true; text.rows = 4; text.value = message;
+  const text = node('textarea', 'fire-message'); text.id = 'fire-message'; text.readOnly = true; text.rows = 4;
   const copied = node('p', 'fire-note'); copied.setAttribute('role', 'status');
   copy.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(message); copied.textContent = t('fire.copied'); }
@@ -94,7 +112,25 @@ function reportBlock(point, verdict, more) {
   });
   wrap.append(call, actions, copied);
   more.append(conafor, share, label, text);
-  return wrap;
+  // Con foto y soporte del navegador: la hoja de compartir del sistema lleva la foto y el mismo
+  // mensaje que "Copiar mensaje". Solo se abre con un toque, y cancelarla no es un error.
+  const data = { files: [state.file], text: '' };
+  const setWhere = where => {
+    message = t('fire.msg', { coords: coords(point), url, where: placeText(where, 'fire.msgWhere'), status: reportStatus(verdict) });
+    text.value = message; data.text = message; fitRows(text);
+  };
+  setWhere(null);
+  if (state.file && navigator.canShare?.(data)) {
+    const send = node('button', 'fire-share-photo', t('fire.sharePhoto')); send.type = 'button';
+    send.addEventListener('click', async () => {
+      copied.textContent = '';
+      try { await navigator.share(data); }
+      catch (error) { if (error?.name !== 'AbortError') copied.textContent = t('fire.shareFailed'); }
+    });
+    actions.prepend(send);
+    share.after(node('p', 'fire-share-note', t('fire.sharePhotoNote')));
+  }
+  return { wrap, setWhere };
 }
 
 export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
@@ -105,7 +141,11 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
   const status = node('p', 'fire-status'); status.setAttribute('role', 'status');
   const photoLabel = node('label', 'fire-photo-label', t('fire.photoLabel')); photoLabel.htmlFor = 'fire-photo';
   const photo = node('input', 'fire-photo'); photo.type = 'file'; photo.id = 'fire-photo'; photo.accept = 'image/jpeg';
-  const photoBox = node('div', 'fire-photo-box'); photoBox.append(photo, photoLabel, node('p', 'fire-note', t('fire.photoNote')));
+  // Segundo control: en el celular abre la cámara trasera, y en escritorio elige un archivo.
+  const cameraLabel = node('label', 'fire-photo-label', t('fire.cameraLabel')); cameraLabel.htmlFor = 'fire-camera';
+  const camera = node('input', 'fire-photo'); camera.type = 'file'; camera.id = 'fire-camera'; camera.accept = 'image/*'; camera.setAttribute('capture', 'environment');
+  const photoActions = node('div', 'fire-photo-actions'); photoActions.append(photo, photoLabel, camera, cameraLabel);
+  const photoBox = node('div', 'fire-photo-box'); photoBox.append(photoActions, node('p', 'fire-note', t('fire.photoNote')));
   const photoMsg = node('p', 'fire-note'); photoMsg.setAttribute('role', 'status');
   const choose = node('div', 'fire-choose'); choose.hidden = true;
   const manual = node('form', 'fire-manual'); manual.hidden = true; manual.noValidate = true;
@@ -122,11 +162,31 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
     mapApi.startPick(point => { state.manual = { ...point, source: 'map' }; state.choice = 'manual'; decide(); });
     status.textContent = message;
   }
+  // Pone la frase del lugar en el resultado que está a la vista. Las localidades son un archivo grande
+  // que llega después del veredicto: al llegar solo se cambia esa línea y el mensaje, sin volver a
+  // dibujar el resultado, para no mover el foco ni la página.
+  let refreshPlace = null;
+  function loadPlaces() {
+    if (state.places) return;
+    loadData('localidades_mx.json').then(data => { state.places = decodePlaces(data); refreshPlace?.(); }).catch(() => {});
+  }
   function render(point, reveal) {
+    refreshPlace = null;
     mapApi.showPoint(point);
-    const now = Date.now(), verdict = fireVerdict(point, snapshot, now);
     const heading = node('h4', 'fire-result-title', t('fire.resultTitle')); heading.tabIndex = -1;
     const out = [heading, node('p', 'fire-point', t('fire.point', { coords: coords(point), source: t(`fire.source.${point.source}`) }))];
+    // Fuera de México no hay veredicto, humo, pases ni reporte: la captura solo cubre México, así que
+    // "sin detecciones" sería engañoso. Queda "Elegir otro punto en el mapa".
+    if (!coversPoint(point, geo)) {
+      result.replaceChildren(...out, node('p', 'fire-verdict', t('fire.outside')));
+      again.hidden = false;
+      if (reveal) { heading.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); heading.focus({ preventScroll: true }); }
+      return;
+    }
+    const now = Date.now(), verdict = fireVerdict(point, snapshot, now);
+    // Estado y localidad más cercana, calculados aquí mismo. Si aún no cargan las localidades, solo el estado.
+    const whereLine = node('p', 'fire-where'), whereNote = node('p', '', t('fire.whereNote'));
+    out.push(whereLine);
     // A la vista: punto, veredicto, mapa, reporte y pases. Lo demás (ventana, GOES, notas) va en
     // "Más detalles", sin perder ningún aviso.
     const more = node('details', 'fire-more'), details = [];
@@ -144,13 +204,22 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
       // Humo de NOAA HMS sobre el punto: una línea a la vista si cae dentro de una pluma local y su
       // aclaración en "Más detalles"; si no hay trazo, nada (de noche y con nubes no se traza).
       const smoke = smokeAt(point, snapshot.humo);
-      if (smoke) { out.push(node('p', 'fire-smoke', t('fire.smokeOver', { from: smoke.from, to: smoke.to, date: formatDay(smoke.date) }))); details.push(node('p', '', t('fire.smokeNote'))); }
+      if (smoke) { out.push(node('p', 'fire-smoke', t('fire.smokeOver' + (smoke.dateTo === smoke.date ? '' : 'Days'), { from: smoke.from, to: smoke.to, date: formatDay(smoke.date), dateTo: formatDay(smoke.dateTo) }))); details.push(node('p', '', t('fire.smokeNote'))); }
       details.push(node('p', '', t('fire.heatNote')));
     }
     if (tle) details.push(node('p', '', t('fire.passNote')), node('p', '', t('fire.tzNote')));
+    details.push(whereNote);
     more.append(...details);
     // El reporte (911, copiar) va justo después del veredicto y la cobertura al final.
-    out.push(reportBlock(point, verdict, more));
+    const report = reportBlock(point, verdict, more);
+    refreshPlace = () => {
+      const where = describePoint(point, geo, state.places);
+      whereLine.textContent = placeText(where, 'fire.where');
+      whereNote.hidden = !(where && (where.kind === 'in' || where.kind === 'near'));
+      report.setWhere(where);
+    };
+    refreshPlace();
+    out.push(report.wrap);
     if (tle) out.push(passList(tle, point, now));
     out.push(more);
     result.replaceChildren(...out);
@@ -175,7 +244,7 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
         b.addEventListener('click', () => { state.choice = which; decide(); });
         choose.append(b);
       }
-      choose.hidden = false; result.replaceChildren(); return;
+      choose.hidden = false; refreshPlace = null; result.replaceChildren(); return;
     }
     const point = state.choice === 'manual' ? state.manual
       : state.choice === 'photo' ? { ...state.photo, source: 'photo' }
@@ -185,7 +254,7 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
     manual.hidden = !fallback;
     if (point) { manualMsg.textContent = ''; mapApi.stopPick(); render(point, reveal); return; }
     // Sin punto: se borra el resultado anterior (por ejemplo, de una foto ya descartada).
-    result.replaceChildren(); again.hidden = true; mapApi.showPoint(null);
+    result.replaceChildren(); again.hidden = true; mapApi.showPoint(null); refreshPlace = null;
     if (fallback) pickOnMap(t(state.geo === 'denied' ? 'fire.denied' : 'fire.unsupported'));
   }
   function locate() {
@@ -196,20 +265,24 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
       () => { state.geo = 'denied'; decide(); },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   }
-  start.addEventListener('click', () => { state.open = true; panel.hidden = false; start.hidden = true; locate(); });
-  again.addEventListener('click', () => { state.choice = null; state.manual = null; result.replaceChildren(); again.hidden = true; manual.hidden = false; pickOnMap(t('fire.pickHint')); mapApi.scrollToMap(); });
+  start.addEventListener('click', () => { state.open = true; panel.hidden = false; start.hidden = true; loadPlaces(); locate(); });
+  again.addEventListener('click', () => { state.choice = null; state.manual = null; refreshPlace = null; result.replaceChildren(); again.hidden = true; manual.hidden = false; pickOnMap(t('fire.pickHint')); mapApi.scrollToMap(); });
   manual.addEventListener('submit', e => {
     e.preventDefault();
-    const lat = Number(fields[0].querySelector('input').value.replace(',', '.')), lon = Number(fields[1].querySelector('input').value.replace(',', '.'));
-    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || !fields[0].querySelector('input').value.trim()) { manualMsg.textContent = t('fire.coordsInvalid'); return; }
+    // Los dos campos deben traer texto: Number('') es 0 y aceptaría una longitud vacía como 0.
+    const [latText, lonText] = fields.map(f => f.querySelector('input').value.trim().replace(',', '.'));
+    const lat = Number(latText), lon = Number(lonText);
+    if (!latText || !lonText || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) { manualMsg.textContent = t('fire.coordsInvalid'); return; }
     state.manual = { lat, lon, source: 'typed' }; state.choice = 'manual'; decide();
   });
-  photo.addEventListener('change', async () => {
-    const file = photo.files?.[0];
-    state.photo = null; state.photoMsg = null; if (state.choice === 'photo') state.choice = null;
+  // La foto elegida y la tomada entran al mismo flujo, y la última sustituye a la anterior.
+  for (const input of [photo, camera]) input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    state.photo = null; state.photoMsg = null; state.file = null; if (state.choice === 'photo') state.choice = null;
     if (file) {
       if (file.size > PHOTO_MAX_BYTES) state.photoMsg = { key: 'fire.photoTooBig', vars: { mb: PHOTO_MAX_BYTES / 1048576 } };
       else {
+        state.file = file;
         const gps = readJpegGps(await file.slice(0, EXIF_READ_BYTES).arrayBuffer());
         if (gps.status === 'ok') { state.photo = { lat: gps.lat, lon: gps.lon }; state.photoMsg = { key: 'fire.photoOk', vars: { coords: coords(state.photo) } }; }
         else state.photoMsg = { key: { 'not-jpeg': 'fire.photoNotJpeg', 'no-exif': 'fire.photoNoGps', 'no-gps': 'fire.photoNoGps' }[gps.status] ?? 'fire.photoBad' };
@@ -217,6 +290,6 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
     }
     decide();
   });
-  if (state.open) { panel.hidden = false; start.hidden = true; decide(false); }
+  if (state.open) { panel.hidden = false; start.hidden = true; loadPlaces(); decide(false); }
   return block;
 }

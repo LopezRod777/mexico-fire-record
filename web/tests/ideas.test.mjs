@@ -225,7 +225,10 @@ test('foto sin ubicación: el flujo borra el resultado anterior cuando no queda 
 });
 test('resultado: el reporte (911) va antes de la cobertura del satélite', () => {
   const fire = readFileSync(new URL('../js/fire.js', import.meta.url), 'utf8');
-  assert.ok(fire.indexOf('out.push(reportBlock(point, verdict));') < fire.indexOf('if (tle) out.push(passList(tle, point, now));'));
+  // Los dos renglones tienen que existir (indexOf da -1 si no) y el reporte ir primero.
+  const report = fire.indexOf('out.push(report.wrap);'), passes = fire.indexOf('if (tle) out.push(passList(tle, point, now));');
+  assert.ok(report > 0 && passes > 0, `reporte ${report}, pases ${passes}`);
+  assert.ok(report < passes);
   assert.match(fire, /scrollIntoView\(\{ block: 'start', behavior: matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches \? 'auto' : 'smooth' \}\)/);
 });
 test('cabecera de órbita: habla del barrido que cubre el centro, no de pasar encima', () => {

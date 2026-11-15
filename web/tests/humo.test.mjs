@@ -50,8 +50,8 @@ test('smokeAt: el trazo más reciente que cubre el punto, o nada', () => {
     poly([box(-100, 20, -96, 24)], '2026-11-14T13:00:00Z', '2026-11-14T16:00:00Z'),
     poly([box(-99, 21, -97, 23)], '2026-11-14T20:10:00Z', '2026-11-15T00:00:00Z', 'Medium'),
     poly([box(-110, 28, -109, 29)], '2026-11-14T16:10:00Z', '2026-11-14T18:00:00Z', 'Heavy')]);
-  assert.deepEqual(smokeAt({ lat: 22, lon: -98 }, data), { from: '20:10', to: '00:00', date: '2026-11-14', densidad: 'Medium' });
-  assert.deepEqual(smokeAt({ lat: 20.5, lon: -99.5 }, data), { from: '13:00', to: '16:00', date: '2026-11-14', densidad: 'Light' });
+  assert.deepEqual(smokeAt({ lat: 22, lon: -98 }, data), { from: '20:10', to: '00:00', date: '2026-11-14', dateTo: '2026-11-15', densidad: 'Medium' });
+  assert.deepEqual(smokeAt({ lat: 20.5, lon: -99.5 }, data), { from: '13:00', to: '16:00', date: '2026-11-14', dateTo: '2026-11-14', densidad: 'Light' });
   assert.equal(smokeAt({ lat: 19, lon: -99 }, data), null);
   assert.equal(smokeAt({ lat: 22, lon: -98 }, null), null);
   assert.equal(smokeAt({ lat: 22, lon: -98 }, { ...data, n: 99 }), null, 'campo inválido: se ignora');

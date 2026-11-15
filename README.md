@@ -20,7 +20,7 @@ Es estática (HTML, CSS y JS sin dependencias). Para verla: `python3 -m http.ser
 - Validación dejando un año fuera (2012–2021): error mensual mediano entre estados 19.5 % con la unión (24.8 % con solo Aqua); nacional 5.5 %. Solo Terra: mediana estatal 27.0 %. Piso estimado por conteos pequeños: ~6.7 % (experiments/e17_error.py).
 - La validación solo cubre 2012–2021. Aplicarla a 2002–2011 es extrapolación no probada.
 - NOAA-20/21 se compararon con S-NPP en 20 días de marzo de 2025 (razones 1.02 y 1.00). No está verificado fuera de ese periodo.
-- Los datos NRT no son de calidad científica y la capa "Hoy" es una captura, no se actualiza sola.
+- Los datos NRT no son de calidad científica. La capa "Hoy" es una captura que se renueva sola (ver "Captura autónoma"); la página abierta no se recarga, así que muestra la captura que había al cargarla.
 - GOES: FIRMS entrega cada imagen con dos algoritmos (G19/G18 = NOAA FDC, G19FRP/G18FRP = KCL/IPMA FRP-PIXEL; ver la FAQ de FIRMS) y GOES-18 y GOES-19 ven México a la vez, así que el mismo calor se repite; por eso no se cuenta. Si MODIS o GOES fallan al bajar, la captura de VIIRS sigue y el fallo queda en `fetch_info.json`.
 - Humo (NOAA HMS): los polígonos son áreas donde un analista vio humo en imágenes diurnas de GOES; no son perímetros de incendio ni prueba de fuego en un punto. De noche no se traza y las nubes pueden taparlo, así que la falta de trazo no significa que no haya humo. Light, Medium y Heavy son categorías del analista, no concentraciones medidas. El archivo del día empieza vacío y se llena durante el día; la captura baja el de hoy y el de ayer (UTC), se queda con los que tocan la geometría de los estados (no el recuadro, que incluye el sur de EE. UU., el Golfo y Centroamérica), deja fuera los de más de 50,000 km² (el 14 nov 2026 las 8 plumas locales medían de 48 a 4,979 km² y las 3 áreas regionales, de 1.08 a 11.5 millones de km²; cuántas se omiten queda en `n_regionales_omitidas`) y simplifica las formas a ~0.5 km. Si la descarga falla, la captura de VIIRS sigue y el fallo queda en `fetch_info.json`. El lector de shapefile es propio (`pipeline/shapefile_min.py`), sin dependencias nuevas.
 - S-NPP dejó de entregar datos en FIRMS el 2 de noviembre de 2026, así que la serie llega hasta octubre de 2026, el último mes completo (noviembre de 2000 a octubre de 2026 son 312 meses, 26 años). Los meses de 2026 que vienen del producto casi en tiempo real (S-NPP desde agosto, MODIS desde septiembre) son provisionales y pueden cambiar cuando NASA publique la versión estándar; van marcados en `provisional`, en el calendario y en el CSV. Los factores, la validación y la línea base de "Hoy" (2012–2025) no usan 2026.
@@ -28,10 +28,23 @@ Es estática (HTML, CSS y JS sin dependencias). Para verla: `python3 -m http.ser
 - Hay 53 días en 15 meses desde 2012 en que S-NPP no entregó datos sobre México (11 en julio de 2024; en 2026, 3 en marzo, 3 en abril, 2 en junio, 6 en julio y 1 en agosto). Esos días no se rellenan, así que el mes puede quedar por debajo de lo real: en 2026 NOAA-20 vio en esos días entre el 5 % y el 20 % de sus celdas-día del mes. Quedan en `dias_sin_deteccion` y en el detalle de cada mes del calendario. Los diagnósticos de "Salud del registro" usan años completos y llegan a 2025.
 - Sin detección no significa sin fuego.
 
+## Captura autónoma de "Hoy"
+La capa "Hoy" se renueva sin intervención, en esta cadena:
+
+1. Vercel Cron (`web/vercel.json`) llama a `/api/refresh` cada 15 minutos.
+2. `web/api/refresh.js` comprueba el encabezado `Authorization` contra `CRON_SECRET` y pide a GitHub un `workflow_dispatch` del workflow `.github/workflows/live.yml`. No guarda ni devuelve datos, solo dispara.
+3. `live.yml` baja FIRMS (`scripts/fetch_live.py`), regenera `web/data/live_snapshot.json` (`pipeline/live_snapshot.py`), la verifica contra los datos crudos (`tests/test_live.py`) y, solo si la captura cambió y la verificación pasa, hace commit a `main`, que es lo que la publica. El mismo workflow conserva su propio horario (minutos 7 y 37 de cada hora) como respaldo.
+
+Configuración (solo nombres, los valores no viven en el repositorio):
+- Variables de entorno del proyecto en Vercel: `CRON_SECRET` y `GH_DISPATCH_TOKEN` (token de GitHub con permiso para disparar el workflow).
+- Secreto del repositorio en GitHub: `FIRMS_MAP_KEY` (llave de la API de NASA FIRMS).
+
+Fuentes actuales de "Hoy": VIIRS de NOAA-20 y NOAA-21 (NRT), MODIS NRT (Terra y Aqua), GOES-18 y GOES-19, todas vía NASA FIRMS, y las plumas de humo del Hazard Mapping System (HMS) de NOAA. Las órbitas (TLE, de CelesTrak) de NOAA-20 y NOAA-21 para el próximo pase se bajan en la misma tarea.
+
 ## Reproducir los datos
 1. `scripts/download_firms_mexico.sh` baja los CSV anuales públicos de NASA FIRMS (sin llave), que llegan a 2025. Para 2026, `FIRMS_MAP_KEY=… python scripts/download_firms_2026.py` baja la API de área en ventanas de 5 días (estándar donde exista, casi en tiempo real después) y `python pipeline/prepare_2026.py` revisa huecos y duplicados y deja solo México y meses completos.
 2. `pip install -r requirements.txt`, luego `pipeline/` (agregados, diagnósticos, asignación a estados, exportación a `web/data/`).
-3. La capa en vivo usa la API de FIRMS con `FIRMS_MAP_KEY` como variable de entorno (no incluida).
+3. La capa en vivo usa la API de FIRMS con `FIRMS_MAP_KEY` como variable de entorno (no incluida): `python scripts/fetch_live.py` y luego `python pipeline/live_snapshot.py`.
 4. Pruebas: `node --test web/tests/` y, una por una, `for f in tests/test_*.py; do python "$f" || break; done`.
 
 `data/raw` y `data/processed` no se incluyen por tamaño (~900 MB); se regeneran con los pasos anteriores. Los JSON que usa la web ya están en `web/data/`.
@@ -42,4 +55,4 @@ EN: AI coding assistants (Anthropic Claude and OpenAI Codex) were used, under th
 ES: Se usaron asistentes de programación con IA (Claude de Anthropic y Codex de OpenAI), bajo la dirección del equipo, para escribir y revisar código, pipelines de datos, pruebas y textos de la web. Cada cifra de la web la calcula el código de este repositorio a partir de datos públicos de NASA FIRMS y la comprueban pruebas automáticas. Ninguna imagen, video o audio de la web está generado con IA: las fotografías son de NASA Earth Observatory y NOAA/CIRA.
 
 ## Créditos
-Datos: NASA FIRMS (https://firms.modaps.eosdis.nasa.gov/): VIIRS NOAA-20 y NOAA-21 NRT, MODIS (Terra y Aqua, incluido MODIS NRT) y GOES-18/19 de NOAA (FDC de NOAA y FRP-PIXEL de KCL/IPMA) vía FIRMS. Humo: NOAA/NESDIS, Hazard Mapping System (HMS) Fire and Smoke Product (https://www.ospo.noaa.gov/products/land/hms.html). Contorno de estados: Natural Earth (dominio público). Imágenes: NASA Earth Observatory, NOAA y CSU/CIRA, dominio público, vía Wikimedia Commons (detalle en el pie de la web). Tipografías: Fraunces e IBM Plex Sans (OFL-1.1).
+Datos: NASA FIRMS (https://firms.modaps.eosdis.nasa.gov/): VIIRS NOAA-20 y NOAA-21 NRT, MODIS (Terra y Aqua, incluido MODIS NRT) y GOES-18/19 de NOAA (FDC de NOAA y FRP-PIXEL de KCL/IPMA) vía FIRMS. Humo: NOAA/NESDIS, Hazard Mapping System (HMS) Fire and Smoke Product (https://www.ospo.noaa.gov/products/land/hms.html). Contorno de estados: Natural Earth (dominio público). Localidades para describir un punto: GeoNames (https://www.geonames.org/), licencia CC BY 4.0, filtradas con `scripts/build_localidades.py`. Imágenes: NASA Earth Observatory, NOAA y CSU/CIRA, dominio público, vía Wikimedia Commons (detalle en el pie de la web). Tipografías: Fraunces e IBM Plex Sans (OFL-1.1).
