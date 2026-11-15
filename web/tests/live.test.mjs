@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { ageHours, formatUtc, isStale, levelBadge, livePointRadius, liveSummary, rankingComparison, validLiveSnapshot } from '../js/live.js';
+import { ageHours, formatUtc, isStale, levelBadge, livePointRadius, flameHeight, liveSummary, rankingComparison, validLiveSnapshot } from '../js/live.js';
 
 const read = path => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const names = read('../data/series_monthly.json').region_names;
@@ -55,3 +55,5 @@ function checkContract(snapshot) {
 test('fixture cumple el contrato completo', () => checkContract(fixture));
 const real = new URL('../data/live_snapshot.json', import.meta.url);
 test('snapshot real cumple el mismo contrato', { skip: existsSync(real) ? false : 'Todavía no existe web/data/live_snapshot.json' }, () => checkContract(read('../data/live_snapshot.json')));
+
+test('escala de llama: null, monotonía y tope',()=>{assert.equal(flameHeight(null),10);assert.equal(flameHeight(0),10);assert.equal(flameHeight(15),28);assert.equal(flameHeight(150),28);const samples=[0,1,3,5,10,15,50].map(flameHeight);assert.ok(samples.every((v,i)=>i===0||v>=samples[i-1]));});

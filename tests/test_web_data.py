@@ -110,6 +110,12 @@ def partition():
     for sensor, month, outside, total in totals:
         national = series["regions"]["MX"][sensor][months.index(month)]
         assert national + outside == total, (sensor, month, national, outside, total)
+    union_totals = con.execute("""SELECT strftime(acq_date,'%Y-%m'),count(*) FROM
+        (SELECT DISTINCT acq_date,cell_i,cell_j FROM days
+         WHERE sensor IN ('Terra','Aqua') AND state_id!='OUT') GROUP BY 1""").fetchall()
+    for month, total in union_totals:
+        if month >= "2002-07":
+            assert series["regions"]["MX"]["Union"][months.index(month)] == total, (month, total)
     return f"{len(totals)} meses-sensor contrastados con parquet"
 
 
@@ -135,10 +141,67 @@ def harmonized():
     i = months.index("2012-02")
     assert mx["fuente"][i] == "SNPP" and mx["valor"][i] == raw["SNPP"][i]
     i = months.index("2005-06")
-    assert math.isclose(mx["valor"][i], raw["Aqua"][i] * mx["k_aqua"][5], abs_tol=1e-9)
+    assert mx["fuente"][i] == "Terra∪Aqua*k"
     for key in ("k_aqua", "k_terra"):
         assert all(k is not None and .2 <= k <= 25 for k in mx[key]), (key, mx[key])
     return "enero 2012 Aqua*k; SNPP exacto desde febrero 2012; 24 razones verificadas"
+
+
+def independent_union():
+    months = series["months"]
+    regions = ("MX", "MX-CHP", "MX-JAL")
+    sample_months = ("2002-07", "2005-05", "2018-04")
+    for region in regions:
+        for month in sample_months:
+            state_filter = "" if region == "MX" else "AND s.state_id=?"
+            params = [month] if region == "MX" else [month, region]
+            count = con.execute(f"""SELECT count(DISTINCT (r.acq_date,r.cell_i,r.cell_j))
+                FROM raw r JOIN state s USING(cell_i,cell_j)
+                WHERE r.sensor IN ('Terra','Aqua') AND s.state_id!='OUT'
+                  AND strftime(r.acq_date,'%Y-%m')=? {state_filter}""", params).fetchone()[0]
+            assert series["regions"][region]["Union"][months.index(month)] == count, (region, month, count)
+    ratios = []
+    for year in range(2012, 2022):
+        snpp, union = con.execute("""SELECT
+            count(DISTINCT (CASE WHEN r.sensor='SNPP' THEN (r.acq_date,r.cell_i,r.cell_j) END)),
+            count(DISTINCT (CASE WHEN r.sensor IN ('Terra','Aqua') THEN (r.acq_date,r.cell_i,r.cell_j) END))
+            FROM raw r JOIN state s USING(cell_i,cell_j)
+            WHERE s.state_id!='OUT' AND year(r.acq_date)=? AND month(r.acq_date)=5""", [year]).fetchone()
+        if snpp > 0 and union > 0:
+            ratios.append(snpp / union)
+    k = float(np.median(ratios))
+    i = months.index("2005-05")
+    expected = series["regions"]["MX"]["Union"][i] * k
+    assert math.isclose(harm["regions"]["MX"]["valor"][i], expected, abs_tol=1e-9)
+    return f"9 conteos, k mayo={k:.9f}, valor mayo 2005={expected:.9f}"
+
+
+def union_validation_and_sources():
+    assert harm["metodo_union"] == {"desde": "2002-07", "hasta": "2011-12",
+        "definicion": "celda-día 0.05° con detección de Terra o Aqua (día y noche)"}
+    mx = harm["regions"]["MX"]["validation"]["union->snpp"]
+    summary = harm["validation_resumen"]["union->snpp"]
+    assert mx["n_meses"] == 119
+    assert math.isclose(mx["mape_razon_mensual"] * 100, 5.525, abs_tol=1e-3)
+    assert math.isclose(summary["mediana_mape_razon_mensual"] * 100, 19.525, abs_tol=1e-3)
+    assert summary["n_regiones"] == 32
+    for region, row in harm["regions"].items():
+        for i, month in enumerate(harm["months"]):
+            expected = ("Terra*k" if month < "2002-07" else
+                        "Terra∪Aqua*k" if month <= "2011-12" else
+                        "Aqua*k" if month == "2012-01" else "SNPP")
+            assert row["fuente"][i] == expected, (region, month, row["fuente"][i])
+            if month < "2002-07":
+                assert series["regions"][region]["Union"][i] is None
+            if expected != "SNPP":
+                pair = ("terra->snpp" if expected == "Terra*k" else
+                        "union->snpp" if expected == "Terra∪Aqua*k" else "aqua->snpp")
+                error = row["validation"][pair]["mape_razon_mensual"]
+                value = row["valor"][i]
+                band = min(1.0, max(.05, error)) if error is not None else None
+                assert row["lo"][i] == (value * (1 - band) if value is not None and band is not None else None)
+                assert row["hi"][i] == (value * (1 + band) if value is not None and band is not None else None)
+    return "M2 nacional 5.525 %, mediana estatal 19.525 %, n=119; fuentes por mes y región"
 
 
 def independent_validation():
@@ -195,7 +258,7 @@ def health_types():
 
 
 def validation_summary():
-    assert set(harm["validation_resumen"]) == {"aqua->snpp", "terra->snpp"}
+    assert set(harm["validation_resumen"]) == {"aqua->snpp", "terra->snpp", "union->snpp"}
     for pair, actual in harm["validation_resumen"].items():
         rows = [region["validation"][pair] for key, region in harm["regions"].items()
                 if key != "MX" and not region["validation"][pair]["insuficiente"]]
@@ -209,7 +272,7 @@ def validation_summary():
         assert actual["n_regiones"] == len(rows)
         for key, value in expected.items():
             assert math.isclose(actual[key], float(value), rel_tol=0, abs_tol=1e-9), (pair, key, actual[key], value)
-    return "dos pares; resumen estatal recalculado ±1e-9"
+    return "tres pares; resumen estatal recalculado ±1e-9"
 
 
 def independent_baseline():
@@ -250,6 +313,8 @@ check("puntos conocidos", known_points)
 check("partición mensual", partition)
 check("cobertura estatal", coverage)
 check("armonización MX", harmonized)
+check("unión y valor independientes", independent_union)
+check("validación M2 y fuentes", union_validation_and_sources)
 check("validación MX Aqua independiente", independent_validation)
 check("tipos de health", health_types)
 check("resumen de validación estatal", validation_summary)

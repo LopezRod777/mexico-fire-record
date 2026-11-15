@@ -1,9 +1,9 @@
-export const PALETTE = ['#162336', '#263c58', '#395773', '#617587', '#92968a', '#c6b774', '#ead967'];
+export const PALETTE = ['#2A1712', '#5C2314', '#9C3A12', '#D4571A', '#F28A1F', '#FFC24A', '#FFF0B8'];
 function channel(hex, i) { return parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16); }
 export function colorFor(t) {
   const x = Math.max(0, Math.min(1, t)) * (PALETTE.length - 1);
   const lo = Math.floor(x), hi = Math.min(PALETTE.length - 1, lo + 1), f = x - lo;
-  return '#' + [0, 1, 2].map(i => Math.round(channel(PALETTE[lo], i) * (1 - f) + channel(PALETTE[hi], i) * f).toString(16).padStart(2, '0')).join('');
+  return '#' + [0, 1, 2].map(i => Math.round(channel(PALETTE[lo], i) * (1 - f) + channel(PALETTE[hi], i) * f).toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 export function luminance(hex) {
   const rgb = [0, 1, 2].map(i => channel(hex, i) / 255).map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);

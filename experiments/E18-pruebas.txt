@@ -1,0 +1,41 @@
+$ python tests/test_web_data.py
+OK desempate de estado: empates estado/estado y estado/OUT; todas las permutaciones coinciden
+OK determinismo de exportación: 2 exportaciones; 6 JSON y 1 GeoJSON idénticos por MD5 (meta sin generado)
+OK puntos conocidos: 7 puntos; CDMX=MX-DIF
+OK partición mensual: 752 meses-sensor contrastados con parquet
+OK cobertura estatal: fracción asignada=0.993891; OUT=0.006109
+OK armonización MX: enero 2012 Aqua*k; SNPP exacto desde febrero 2012; 24 razones verificadas
+OK unión y valor independientes: 9 conteos, k mayo=3.020786906, valor mayo 2005=58832.845784492
+OK validación M2 y fuentes: M2 nacional 5.525 %, mediana estatal 19.525 %, n=119; fuentes por mes y región
+OK validación MX Aqua independiente: 119 meses; tres métricas coinciden ±1e-9
+OK tipos de health: 236 filas; números tipados y versión conservada como texto
+OK resumen de validación estatal: tres pares; resumen estatal recalculado ±1e-9
+OK línea base MX independiente: día 150; 95 valores; p50/p90 coinciden ±1e-9
+OK esquema y finitud: 302 meses; 2876 celdas; JSON sin NaN/Infinity
+OK tamaños: baseline_doy.json=456.9 KB, cells_yearly.json=698.8 KB, harmonized.json=491.2 KB, health.json=20.1 KB, live_snapshot.json=33.9 KB, meta.json=0.8 KB, series_monthly.json=132.5 KB
+RESULTADO: 0 fallo(s)
+EXIT=0
+
+$ python tests/test_pipeline.py
+OK conservación mx: {'SNPP': 4225823, 'Aqua': 879347, 'Terra': 806123}
+OK mes vs día mx: n_det=5911293, cell_days=3205898
+OK LST mx: {'Aqua': 14.39, 'Terra': 9.66, 'N': 13.27}
+OK razones mx: {'2025 terra_snpp': 0.1433, '2021 terra_snpp': 0.1683, '2024 aqua_snpp': 0.2604}
+OK conservación us: {'Terra': 481722, 'Aqua': 531927, 'SNPP': 4221767}
+OK mes vs día us: n_det=5235416, cell_days=2069267
+OK LST us: {'Aqua': 14.2, 'Terra': 9.89}
+OK razones us: {'2025 terra_snpp': 0.2273, '2021 terra_snpp': 0.3078}
+OK solapamiento MX: {'D p_mismo_dia': 0.3226, 'D p_dia_siguiente': 0.0717, 'N p_mismo_dia': 0.4488, 'N p_dia_siguiente': 0.1971}
+OK versiones MODIS: {2022: ['6.03'], 2023: ['61.03']}
+RESULTADO: 0 fallo(s)
+EXIT=0
+
+$ python tests/test_live.py
+OK determinismo: dos ejecuciones; MD5=8b16f76e1daa972f27b8181b48c0b128
+OK partición y estados: 32 estados; MX N20=55, N21=60; JAL, BCN y CHH contrastados con CSV
+OK ventana y reconciliación: filas=2014 = OUT 1609 + ventana MX 230 + fuera de ventana MX 175; OUT se cuenta antes de filtrar la ventana
+OK bordes de nivel: 6 bordes y línea base faltante
+OK línea base y media: 33 regiones; 2 sensores; medias y línea base del DOY 317
+OK JSON y tamaño: JSON válido; 34710 bytes (33.9 KiB)
+RESULTADO: 0 fallo(s)
+EXIT=0

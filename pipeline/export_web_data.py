@@ -12,7 +12,8 @@ from common import PROCESSED, ROOT
 
 DEST = ROOT / "web/data"
 SENSORS = ("Terra", "Aqua", "SNPP")
-START = {"Terra": "2000-11", "Aqua": "2002-07", "SNPP": "2012-01"}
+MONTHLY_SENSORS = (*SENSORS, "Union")
+START = {"Terra": "2000-11", "Aqua": "2002-07", "SNPP": "2012-01", "Union": "2002-07"}
 HEALTH_INTS = {"year", "n", "n_celdas_viirs", "terra_cell_days", "aqua_cell_days", "snpp_cell_days"}
 HEALTH_FLOATS = {"lst_median", "terra_snpp", "aqua_snpp", "p_mismo_dia", "p_dia_siguiente", "p_dia_previo"}
 MONTHS = [f"{year}-{month:02d}" for year in range(2000, 2026) for month in range(1, 13)
@@ -108,21 +109,25 @@ def build():
     write("meta.json", {"generado": datetime.now(timezone.utc).isoformat(), "filas_entrada_por_sensor": counts,
           "definiciones": {"celda_dia": "Una celda de 0.05° con detección en un día; se unen día y noche.",
           "tamano_celda": "Cada celda mide 0.05° de latitud por 0.05° de longitud.",
-          "serie_armonizada": "Serie en escala VIIRS S-NPP; antes de 2012 se ajustan Aqua o Terra con razones mensuales.",
+          "serie_armonizada": "Serie en escala VIIRS S-NPP; 2000-11 a 2002-06 usa Terra y 2002-07 a 2011-12 usa la unión Terra-Aqua con razones mensuales.",
           "ventana_pre_deriva": "Las razones se estiman con 2012–2021, antes de la deriva orbital posterior.",
           "enero_2012": "Enero de 2012 es un mes parcial de S-NPP (inicia el 20 de enero); se estima con Aqua.",
           "banda_error": "Rango ilustrativo basado en el error mediano de validación, acotado entre 5 % y 100 %; NO es un intervalo estadístico formal."}})
 
     monthly = con.execute("""SELECT sensor,state_id,strftime(acq_date,'%Y-%m') AS month,count(*) AS n
                             FROM distinct_days WHERE state_id!='OUT' GROUP BY 1,2,3""").fetchall()
-    by_region = {region: {sensor: {} for sensor in SENSORS} for region in regions}
+    monthly += con.execute("""SELECT 'Union',state_id,strftime(acq_date,'%Y-%m') AS month,count(*) AS n
+                              FROM (SELECT DISTINCT acq_date,cell_i,cell_j,state_id FROM distinct_days
+                                    WHERE state_id!='OUT' AND sensor IN ('Terra','Aqua'))
+                              GROUP BY 2,3""").fetchall()
+    by_region = {region: {sensor: {} for sensor in MONTHLY_SENSORS} for region in regions}
     for sensor, state, month, n in monthly:
         by_region[state][sensor][month] = n
         by_region["MX"][sensor][month] = by_region["MX"][sensor].get(month, 0) + n
     series = {region: {sensor: [None if m < START[sensor] else by_region[region][sensor].get(m, 0)
-                                for m in MONTHS] for sensor in SENSORS} for region in regions}
+                                for m in MONTHS] for sensor in MONTHLY_SENSORS} for region in regions}
     write("series_monthly.json", {"unidad": "celdas-día con detección (celdas de 0.05°; unión día+noche)",
-          "months": MONTHS, "sensors": list(SENSORS), "region_names": names, "regions": series})
+          "months": MONTHS, "sensors": list(MONTHLY_SENSORS), "region_names": names, "regions": series})
 
     yearly = con.execute("""SELECT d.sensor,year(d.acq_date) AS year,
                                  CAST(floor(d.cell_i / 5.0) AS INTEGER) AS ci,
@@ -167,12 +172,12 @@ def build():
     print(f"Mapa: {len(kept)} celdas incluidas; {excluded} celdas excluidas por mayoría OUT")
 
     harmonized = {}
-    insufficient = {sensor: 0 for sensor in ("Aqua", "Terra")}
+    insufficient = {sensor: 0 for sensor in ("Aqua", "Terra", "Union")}
     for region in regions:
         original = by_region[region]
-        ks = {sensor: factors(original, sensor) for sensor in ("Aqua", "Terra")}
-        validations = {sensor.lower() + "->snpp": validate(original, sensor) for sensor in ("Aqua", "Terra")}
-        for sensor in ("Aqua", "Terra"):
+        ks = {sensor: factors(original, sensor) for sensor in ("Aqua", "Terra", "Union")}
+        validations = {sensor.lower() + "->snpp": validate(original, sensor) for sensor in ("Aqua", "Terra", "Union")}
+        for sensor in ("Aqua", "Terra", "Union"):
             insufficient[sensor] += validations[sensor.lower() + "->snpp"]["insuficiente"]
         values, sources, low, high = [], [], [], []
         for month in MONTHS:
@@ -180,10 +185,10 @@ def build():
             if month >= START["SNPP"] and month != "2012-01":
                 value, source_sensor = original["SNPP"].get(month, 0), "SNPP"
             else:
-                sensor = "Aqua" if month >= START["Aqua"] else "Terra"
+                sensor = "Union" if "2002-07" <= month <= "2011-12" else "Aqua" if month >= START["Aqua"] else "Terra"
                 k = ks[sensor][number]
                 value = original[sensor].get(month, 0) * k if k is not None else None
-                source_sensor = sensor + "*k" if k is not None else "sin_dato"
+                source_sensor = "Terra∪Aqua*k" if sensor == "Union" else sensor + "*k"
             values.append(value)
             sources.append(source_sensor)
             if value is None or source_sensor == "SNPP":
@@ -199,7 +204,7 @@ def build():
                               "k_terra": [ks["Terra"][m] for m in range(1, 13)],
                               "validation": validations}
     validation_resumen = {}
-    for pair in ("aqua->snpp", "terra->snpp"):
+    for pair in ("aqua->snpp", "terra->snpp", "union->snpp"):
         valid = [harmonized[region]["validation"][pair] for region in regions if region != "MX"
                  and not harmonized[region]["validation"][pair]["insuficiente"]]
         monthly = [row["mape_razon_mensual"] for row in valid]
@@ -211,8 +216,10 @@ def build():
             "p75_mape_razon_mensual": float(np.percentile(monthly, 75)) if monthly else None,
             "max_mape_razon_mensual": max(monthly) if monthly else None,
             "n_regiones": len(valid)}
-    write("harmonized.json", {"months": MONTHS, "regions": harmonized, "validation_resumen": validation_resumen})
-    print(f"Validación insuficiente: Aqua {insufficient['Aqua']}/33; Terra {insufficient['Terra']}/33")
+    write("harmonized.json", {"months": MONTHS, "regions": harmonized, "validation_resumen": validation_resumen,
+          "metodo_union": {"desde": "2002-07", "hasta": "2011-12",
+                           "definicion": "celda-día 0.05° con detección de Terra o Aqua (día y noche)"}})
+    print(f"Validación insuficiente: Aqua {insufficient['Aqua']}/33; Terra {insufficient['Terra']}/33; Union {insufficient['Union']}/33")
 
     daily = con.execute("""SELECT state_id,acq_date,count(*) AS n FROM distinct_days
                           WHERE sensor='SNPP' AND state_id!='OUT' AND year(acq_date) BETWEEN 2012 AND 2025
