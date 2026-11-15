@@ -12,7 +12,7 @@ export function monthStory(harmonized) {
   const d=daysOf2005(harmonized);
   if(!Number.isFinite(d.march)||!Number.isFinite(d.may)||!d.highest)return t('days.unavailable');
   const month=new Intl.DateTimeFormat(getLanguage()==='en'?'en-US':'es-MX',{month:'long',timeZone:'UTC'}).format(new Date(`${d.highest.month}-01T00:00:00Z`));
-  return t(['2005-03','2005-05'].includes(d.highest.month)?'days.storyCompared':'days.story',{march:integer(d.march),may:integer(d.may),month:month[0].toUpperCase()+month.slice(1),highest:integer(d.highest.value)});
+  return t(['2005-03','2005-05'].includes(d.highest.month)?'days.storyCompared':'days.story',{march:integer(d.march),may:integer(d.may),month,highest:integer(d.highest.value)});
 }
 export function daysFigure(harmonized) {
   const may=daysOf2005(harmonized).may;

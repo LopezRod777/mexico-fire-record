@@ -22,7 +22,7 @@ test('llamas: FRP ascendente y escalonado dentro de 1.1 s',()=>{
 test('dos días: compara marzo y mayo y halla el mayor mes del fixture',()=>{
   const fixture={months:['2005-03','2005-04','2005-05','2005-06'],regions:{MX:{valor:[10,30,20,5]}}};
   assert.deepEqual(daysOf2005(fixture),{march:10,may:20,highest:{month:'2005-04',value:30}});
-  assert.match(monthStory(fixture),/Abril fue el mes con mayor valor de 2005: 30/);
+  assert.match(monthStory(fixture),/el mes con mayor valor de 2005 fue abril, con 30 celdas-día/);
 });
 test('dos días: la cifra de mayo va junto a la foto y no se repite en el texto',()=>{
   const fixture={months:['2005-03','2005-05'],regions:{MX:{valor:[18805.4,58832.8]}}};
@@ -47,7 +47,11 @@ test('método: unión usa error Terra desde JSON; sin unión conserva el texto p
 test('contrastes editoriales: texto y marcas sobre campos sólidos',()=>{
   for(const [fg,bg,min] of [['#000000','#FF6831',4.5],['#000000','#C5C5C5',4.5],['#ECEAE6','#0E0B0A',4.5],['#000000','#FF6831',3]])assert.ok(contrast(fg,bg)>=min,`${fg} en ${bg}: ${contrast(fg,bg)}`);
   const css=readFileSync(new URL('../css/styles.css',import.meta.url),'utf8');
-  assert.doesNotMatch(css,/linear-gradient|radial-gradient|Plex Mono|box-shadow/);
+  // Única excepción: el velo neutro bajo el título de la portada (mismo tono del fondo, solo cambia la opacidad).
+  const veils=[...css.matchAll(/\.(?:hero-overlay|hero-text)\{[^}]*\}/g)].map(m=>m[0]).filter(rule=>rule.includes('gradient'));
+  assert.ok(veils.length>=1);
+  for(const rule of veils)assert.deepEqual([...new Set(rule.match(/rgba\([^)]*\)/g).map(c=>c.replace(/,[^,]*\)$/,')')))],['rgba(14,11,10)']);
+  assert.doesNotMatch(css.replace(/\.(?:hero-overlay|hero-text)\{[^}]*\}/g,''),/linear-gradient|radial-gradient|Plex Mono|box-shadow/);
 });
 test('statements: tres reglas limitadas a 24 px y 20 px en móvil',()=>{
   const css=readFileSync(new URL('../css/styles.css',import.meta.url),'utf8');

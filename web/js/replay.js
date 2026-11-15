@@ -87,3 +87,72 @@ export function modisExpected(probabilities) {
   if (!probabilities.length || probabilities.some(p => p == null)) return null;
   return Math.round(probabilities.reduce((sum, p) => sum + p, 0));
 }
+
+// Detecciones con mayor probabilidad hasta completar n (por omisión, la suma redondeada).
+// Determinista: probabilidad descendente y, si empatan, el índice original.
+export function modisSelection(probabilities, n = modisExpected(probabilities)) {
+  if (n == null) return [];
+  return probabilities.map((p, i) => i).sort((a, b) => probabilities[b] - probabilities[a] || a - b).slice(0, n).sort((a, b) => a - b);
+}
+
+// Línea de tiempo: el eje va del inicio del bloque de 15 min de la primera detección al final
+// del bloque de la última; cada barra cuenta detecciones por satélite en su bloque.
+export const BIN_MS = 15 * 60000;
+export function timelineBins(detections, binMs = BIN_MS) {
+  const times = detections.map(detectionTime);
+  if (!times.length) return null;
+  const start = Math.floor(Math.min(...times) / binMs) * binMs;
+  const end = Math.floor(Math.max(...times) / binMs) * binMs + binMs;
+  const bins = Array.from({ length: Math.round((end - start) / binMs) }, (_, i) => ({ t0: start + i * binMs, n20: 0, n21: 0 }));
+  detections.forEach((d, i) => { const bin = bins[Math.floor((times[i] - start) / binMs)]; if (d.sat === 'N21') bin.n21++; else bin.n20++; });
+  return { start, end, bins, max: Math.max(...bins.map(b => b.n20 + b.n21)) };
+}
+// Fracción 0..1 del eje para un instante, y el instante para una fracción (clic o arrastre).
+export function timelineFraction(time, start, end) { return end > start ? Math.max(0, Math.min(1, (time - start) / (end - start))) : 0; }
+export function timelineSeek(fraction, start, end) { return start + Math.max(0, Math.min(1, fraction)) * (end - start); }
+// Teclado: flechas = 15 min, RePág/AvPág = 1 h, Inicio/Fin = extremos.
+export function timelineKey(key, time, start, end) {
+  if (key === 'Home') return start;
+  if (key === 'End') return end;
+  const step = { ArrowRight: BIN_MS, ArrowUp: BIN_MS, ArrowLeft: -BIN_MS, ArrowDown: -BIN_MS, PageUp: 4 * BIN_MS, PageDown: -4 * BIN_MS }[key];
+  return step == null ? null : Math.max(start, Math.min(end, time + step));
+}
+
+// Ritmo de la reproducción: el eje es lineal, pero el cabezal va lento durante cada pase
+// (± pad) y rápido en las horas sin satélite. Devuelve tramos [t0, t1] con su fracción p0..p1.
+export function replaySchedule(passes, start, end, padMs = 10 * 60000, gapWeight = 0.08) {
+  const windows = [];
+  for (const p of passes) {
+    const a = Math.max(start, p.start - padMs), b = Math.min(end, p.end + padMs);
+    const last = windows.at(-1);
+    if (last && a <= last.t1) last.t1 = Math.max(last.t1, b); else windows.push({ t0: a, t1: b });
+  }
+  const segments = [];
+  let cursor = start;
+  for (const w of windows) {
+    if (w.t0 > cursor) segments.push({ t0: cursor, t1: w.t0, weight: (w.t0 - cursor) * gapWeight, pass: false });
+    segments.push({ t0: cursor > w.t0 ? cursor : w.t0, t1: w.t1, weight: w.t1 - Math.max(cursor, w.t0), pass: true });
+    cursor = w.t1;
+  }
+  if (end > cursor) segments.push({ t0: cursor, t1: end, weight: (end - cursor) * gapWeight, pass: false });
+  const total = segments.reduce((sum, s) => sum + s.weight, 0) || 1;
+  let acc = 0;
+  for (const s of segments) { s.p0 = acc / total; acc += s.weight; s.p1 = acc / total; }
+  return segments;
+}
+export function scheduleTime(progress, segments) {
+  if (!segments.length) return 0;
+  const p = Math.max(0, Math.min(1, progress));
+  const s = segments.find(seg => p <= seg.p1) ?? segments.at(-1);
+  return s.p1 > s.p0 ? s.t0 + (p - s.p0) / (s.p1 - s.p0) * (s.t1 - s.t0) : s.t1;
+}
+export function scheduleProgress(time, segments) {
+  if (!segments.length || time <= segments[0].t0) return 0;
+  const s = segments.find(seg => time <= seg.t1);
+  if (!s) return 1;
+  return s.t1 > s.t0 ? s.p0 + (time - s.t0) / (s.t1 - s.t0) * (s.p1 - s.p0) : s.p1;
+}
+// Pase que se está viendo: el instante cae dentro de su ventana ± pad.
+export function passNow(passes, time, padMs = 10 * 60000) {
+  return passes.findLast(p => time >= p.start - padMs && time <= p.end + padMs) ?? null;
+}

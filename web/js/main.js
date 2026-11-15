@@ -4,6 +4,7 @@ import { calendarModel, renderCalendar } from './calendar.js';
 import { renderHealth } from './health.js';
 import { renderConfidence } from './confidence.js';
 import { loadLive } from './live.js';
+import { setupHeroMarks } from './hero.js';
 import { downloadCsv } from './csv.js';
 import { monthStory, daysFigure, harmonizedMethod } from './editorial.js';
 import { setupMotion, animateCalendarChange, animateErrorChange, setLanguageRepaint } from './motion.js';
@@ -24,6 +25,7 @@ async function main(){
   let storage;try{storage=window.localStorage;}catch{}
   setLanguage(chooseLanguage(location.search,storage,navigator.language));
   paintStatic();
+  setupHeroMarks();
   const firmsLink=document.querySelector('a[href*="firms.modaps.eosdis.nasa.gov"]');
   if(firmsLink) firmsLink.textContent=firmsLink.href;
   const data=await loadAll(),series=data['series_monthly.json'],harmonized=data['harmonized.json'],cells=data['cells_yearly.json'],geo=data['geo/mx_states.geojson'],health=data['health.json'];

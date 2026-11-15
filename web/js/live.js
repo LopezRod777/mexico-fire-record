@@ -1,9 +1,8 @@
 import { VIEW, project, geometryToPath } from './geo.js';
 import { number } from './format.js';
 import { ensureFlameDefs } from './flame.js';
-import { animateLive } from './motion.js';
 import { t, formatDate, formatDay, formatClock, regionName } from './i18n.js';
-import { FRP_CUTS, frpClass, clusterHeight, clusterDetections, clusterAttrs, detectionTime, satellitePasses, replayTime, passAt, modisProbabilities, modisExpected } from './replay.js';
+import { FRP_CUTS, frpClass, clusterHeight, clusterDetections, clusterAttrs, detectionTime, satellitePasses, modisProbabilities, modisExpected, modisSelection, timelineBins, timelineFraction, timelineSeek, timelineKey, replaySchedule, scheduleTime, scheduleProgress, passNow } from './replay.js';
 export { flameHeight } from './flame.js';
 
 const NS = 'http:' + '//www.w3.org/2000/svg';
@@ -24,6 +23,12 @@ export function validLiveSnapshot(d, stateIds) {
   if(stateIds.length!==32||Object.keys(d.estados).length!==32||!stateIds.every(id=>validRegion(d.estados[id])))return false;
   return d.detecciones.length===d.n_detecciones_24h&&d.detecciones.every(x=>x&&typeof x==='object'&&Number.isFinite(x.lat)&&Number.isFinite(x.lon)&&/^\d{4}-\d\d-\d\d$/.test(x.fecha??'')&&/^\d\d:\d\d$/.test(x.hora_utc??'')&&['N20','N21'].includes(x.sat)&&(x.frp===null||Number.isFinite(x.frp))&&['l','n','h'].includes(x.conf)&&stateIds.includes(x.estado));
 }
+// Antigüedad en horas (menos de 48 h) o en días, para el aviso de captura vieja.
+export function ageText(hours) { const h=Math.floor(hours);if(h<48)return t('live.ageHours',{n:number(h)});return t('live.ageDays',{n:number(Math.floor(h/24))}); }
+export function staleNotice(generado,now=Date.now()) { return isStale(generado,now)?t('live.stale',{date:formatUtc(generado),age:ageText(ageHours(generado,now))}):null; }
+// Qué muestra "Hoy": todo si el archivo es válido (con aviso si tiene más de 6 h); la vista de
+// "no disponible" solo cuando falta o no cumple el contrato.
+export function liveView(data,stateIds,now=Date.now()) { return validLiveSnapshot(data,stateIds)?{mode:'full',notice:staleNotice(data.generado,now)}:{mode:'unavailable',notice:null}; }
 export function liveSummary(snapshot,names,now=Date.now()) {
   const ranking=Object.entries(snapshot.estados).filter(([,v])=>['alto','extraordinario','record'].includes(v.nivel)).map(([id,v])=>({id,name:regionName(id,names),...v,ratio:v.celdas_dia/Math.max(v.base_p50,1)})).sort((a,b)=>b.ratio-a.ratio||a.name.localeCompare(b.name,'es-MX')).slice(0,8);
   return {ageHours:ageHours(snapshot.generado,now),stale:isStale(snapshot.generado,now),nDetecciones:snapshot.n_detecciones_24h,nacional:snapshot.nacional,ranking};
@@ -31,61 +36,138 @@ export function liveSummary(snapshot,names,now=Date.now()) {
 function node(tag,className,text) { const e=document.createElement(tag);if(className)e.className=className;if(text!=null)e.textContent=text;return e; }
 function svgNode(tag,attrs) { const e=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,String(v));return e; }
 const SAT_NAMES={N20:'NOAA-20',N21:'NOAA-21'};
-const REPLAY_MS=24000,HOLD_MS=3000;
+const REPLAY_MS=24000,HOLD_MS=3500,FRESH_MS=2200;
 const reducedMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+const hhmm=time=>new Date(time).toISOString().slice(11,16);
 let resizeTimer;
 let resizeBound=false;
 let replay=null;
 function legendFlame(height,className) { const icon=svgNode('svg',{viewBox:'0 0 20 28',width:(height*20/28).toFixed(1),height,'aria-hidden':'true'});icon.append(svgNode('use',{href:'#flame',class:`live-flame ${className}`}));return icon; }
-function legendGroup(title,items) { const group=node('div','live-legend-group');group.append(node('p','live-legend-title',title));const list=node('ul','live-legend-list');for(const [icon,label] of items){const li=node('li','live-legend-item');li.append(icon,node('span','',label));list.append(li);}group.append(list);return group; }
-function clusterTitle(c,dets) {
-  const n20=c.members.filter(i=>dets[i].sat==='N20').length;
+function legendRing() { const icon=svgNode('svg',{viewBox:'-12 -12 24 24',width:20,height:20,'aria-hidden':'true'});icon.append(svgNode('circle',{r:9,class:'legend-ring'}));return icon; }
+// Leyenda compacta: una línea por canal, con iconos y rótulos cortos.
+function legendRow(title,items) {
+  const row=node('div','live-legend-row');row.append(node('span','live-legend-title',title));
+  const list=node('ul','live-legend-list');
+  for(const [icon,label,aria] of items){const li=node('li','live-legend-item');if(aria)li.setAttribute('aria-label',aria);const text=node('span','',label);if(aria)text.setAttribute('aria-hidden','true');li.append(icon,text);list.append(li);}
+  row.append(list);return row;
+}
+function satGlyph() { const icon=svgNode('svg',{viewBox:'0 0 26 14',width:26,height:14,class:'sat-glyph','aria-hidden':'true'});icon.append(svgNode('rect',{x:0,y:4,width:8,height:6}),svgNode('rect',{x:10,y:2,width:6,height:10}),svgNode('rect',{x:18,y:4,width:8,height:6}));return icon; }
+function clusterTitle(c,points) {
+  const n20=c.members.filter(i=>points[i].sat==='N20').length;
   return t(c.n===1?'live.clusterTitleOne':'live.clusterTitle',{n:number(c.n),frp:number(c.frpMax),n20:number(n20),n21:number(c.n-n20)});
 }
+// Un grupo de llama. La posición vive en el <g> exterior; ignite y ring son hijos sin atributo
+// transform, y son lo único que se anima (en Safari, animar transform de un elemento que ya
+// tiene transform de posición deja la llama en la esquina del mapa).
+function clusterNode(c,points,k,focusable) {
+  const a=clusterAttrs(c,clusterHeight(c.n),k),label=clusterTitle(c,points),h=clusterHeight(c.n)*k;
+  const group=svgNode('g',{class:'live-cluster',...a.position});
+  if(focusable){group.setAttribute('tabindex',0);group.setAttribute('role','img');group.setAttribute('aria-label',label);}
+  const title=svgNode('title',{});title.textContent=label;
+  const ring=svgNode('circle',{class:'live-ring',cx:0,cy:(-h*0.45).toFixed(2),r:(h*0.6).toFixed(2),opacity:0});
+  const ignite=svgNode('g',a.ignite),flame=svgNode('use',{href:'#flame',class:'live-flame'});
+  const count=svgNode('text',{class:'live-count','font-size':(13*k).toFixed(2),'stroke-width':(3*k).toFixed(2),'aria-hidden':'true'});
+  ignite.append(flame,count);group.append(title,ring,ignite);
+  return {group,ring,ignite,flame,count};
+}
+function paintCluster(c,parts,s,k) {
+  const a=clusterAttrs(c,clusterHeight(Math.max(1,s.n)),k);
+  parts.flame.setAttribute('transform',a.flame.transform);
+  parts.flame.setAttribute('class',`live-flame ${s.n21>s.n20?'live-n21':'live-n20'} ${frpClass(s.frpMax)}`);
+  parts.count.setAttribute('transform',a.count.transform);parts.count.textContent=s.n>=3?number(s.n):'';
+}
+// Mapa fijo (estado final) para la comparación VIIRS / MODIS.
+function drawStaticMap(svg,points) {
+  const width=svg.getBoundingClientRect().width;if(!width)return false;
+  const k=VIEW.width/width;
+  svg.querySelector('.live-clusters')?.remove();
+  const layer=svgNode('g',{class:'live-clusters'});
+  for(const c of clusterDetections(points,k)){const parts=clusterNode(c,points,k,false);const n20=c.members.filter(i=>points[i].sat==='N20').length;paintCluster(c,parts,{n:c.n,n20,n21:c.n-n20,frpMax:c.frpMax},k);layer.append(parts.group);}
+  svg.append(layer);return true;
+}
+function mapSvg(geo,titleText,descText,idBase) {
+  const svg=svgNode('svg',{viewBox:`0 0 ${VIEW.width} ${VIEW.height}`});
+  if(idBase){svg.setAttribute('role','group');svg.setAttribute('aria-labelledby',`${idBase}-title ${idBase}-desc`);const title=svgNode('title',{id:`${idBase}-title`});title.textContent=titleText;const desc=svgNode('desc',{id:`${idBase}-desc`});desc.textContent=descText;svg.append(title,desc);}
+  else {svg.setAttribute('aria-hidden','true');}
+  geo.features.forEach(f=>svg.append(svgNode('path',{d:geometryToPath(f.geometry),class:'live-outline'})));
+  return svg;
+}
+// Línea de tiempo en px reales (se redibuja al cambiar de ancho, así el texto no se deforma).
+function buildTimeline(box,tl,passes) {
+  const W=box.getBoundingClientRect().width;if(!W)return null;
+  const H=116,pad=10,top=40,base=92,x=time=>pad+timelineFraction(time,tl.start,tl.end)*(W-2*pad);
+  const svg=svgNode('svg',{viewBox:`0 0 ${W.toFixed(1)} ${H}`,width:W.toFixed(1),height:H,'aria-hidden':'true'});
+  const bands=svgNode('g',{class:'tl-bands'}),labels=svgNode('g',{class:'tl-labels'}),bars=svgNode('g',{class:'tl-bars'});
+  const lanes=[-Infinity,-Infinity];
+  for(const p of passes){
+    const x0=x(p.start),x1=x(p.end+60000),w=Math.max(8,x1-x0),cx=(x0+x1)/2;
+    const band=svgNode('rect',{class:`tl-band tl-band-${p.sat.toLowerCase()}`,x:(cx-w/2).toFixed(1),y:top-6,width:w.toFixed(1),height:base-top+6});
+    const title=svgNode('title',{});title.textContent=t('live.pass',{sat:SAT_NAMES[p.sat],time:hhmm(p.start)});band.append(title);bands.append(band);
+    const text=SAT_NAMES[p.sat],tw=text.length*7+6,lx=Math.max(tw/2,Math.min(W-tw/2,cx));
+    const lane=lanes.findIndex(end=>lx-tw/2>=end);
+    if(lane<0)continue;
+    lanes[lane]=lx+tw/2;
+    labels.append(Object.assign(svgNode('text',{class:`tl-label tl-label-${p.sat.toLowerCase()}`,x:lx.toFixed(1),y:lane?28:13,'text-anchor':'middle'}),{textContent:text}));
+  }
+  const binW=(W-2*pad)/tl.bins.length,unit=(base-top)/Math.max(1,tl.max);
+  const binEls=tl.bins.map(b=>{
+    const g=svgNode('g',{class:'tl-bin'}),bx=x(b.t0)+0.5,bw=Math.max(1,binW-1.5),h20=b.n20*unit,h21=b.n21*unit;
+    if(b.n20)g.append(svgNode('rect',{class:'tl-bar tl-n20',x:bx.toFixed(1),y:(base-h20).toFixed(1),width:bw.toFixed(1),height:h20.toFixed(1)}));
+    if(b.n21)g.append(svgNode('rect',{class:'tl-bar tl-n21',x:(bx+0.75).toFixed(1),y:(base-h20-h21+0.75).toFixed(1),width:Math.max(0.5,bw-1.5).toFixed(1),height:Math.max(0.5,h21-1.5).toFixed(1)}));
+    bars.append(g);return {g,t0:b.t0,future:false};
+  });
+  const axis=svgNode('g',{class:'tl-axis'});axis.append(svgNode('line',{x1:pad,x2:(W-pad).toFixed(1),y1:base+0.5,y2:base+0.5}));
+  const hour=3600000,every=(W<560?6:3)*hour;
+  for(let tick=Math.ceil(tl.start/every)*every;tick<=tl.end;tick+=every){const tx=x(tick);axis.append(svgNode('line',{x1:tx.toFixed(1),x2:tx.toFixed(1),y1:base,y2:base+5}));axis.append(Object.assign(svgNode('text',{x:tx.toFixed(1),y:H-4,'text-anchor':tx<40?'start':tx>W-40?'end':'middle'}),{textContent:hhmm(tick)}));}
+  axis.append(Object.assign(svgNode('text',{x:pad,y:H-4,class:'tl-utc'}),{textContent:'UTC'}));
+  const head=svgNode('g',{class:'tl-head'});head.append(svgNode('line',{x1:0,x2:0,y1:top-10,y2:base+2}),svgNode('circle',{cx:0,cy:base,r:6}));
+  svg.append(bands,labels,bars,axis,head);
+  box.replaceChildren(svg);
+  return {pad,width:W,x,binEls,head};
+}
 function stopReplay(){ if(!replay)return; cancelAnimationFrame(replay.raf); replay.observer?.disconnect(); replay=null; }
-// Reproducción de las últimas 24 h: cada grupo se enciende en el minuto real de su primera
-// detección y crece con las siguientes. Solo cambia transform y opacity.
-function startReplay(ui,dets,passes) {
+// Reproducción de las 24 h: el cabezal recorre la línea de tiempo (lento en cada pase, rápido
+// en las horas sin satélite); cada grupo se enciende en el minuto real de su primera detección,
+// lanza un anillo con cada detección nueva y pasa de "recién detectada" a "ya vista".
+function startReplay(ui,dets,passes,tl) {
   stopReplay();
   const order=dets.map((d,i)=>i).sort((a,b)=>dets[a].time-dets[b].time||a-b);
-  const first=dets[order[0]]?.time??0,last=dets[order.at(-1)]?.time??0;
-  const r={raf:0,playhead:0,lastNow:null,userPaused:reducedMotion(),hoverPaused:false,inView:false,once:false,pointer:0,modis:false,clusters:[],memberOf:[],k:1};
+  const schedule=replaySchedule(passes,tl.start,tl.end);
+  dets.forEach(d=>{d.playAt=scheduleProgress(d.time,schedule)*REPLAY_MS;});
+  const total=dets.length;
+  const r={raf:0,playhead:0,lastNow:null,userPaused:reducedMotion(),hoverPaused:false,inView:false,once:false,pointer:0,shown:0,time:-Infinity,clusters:[],memberOf:[],k:1,timeline:null,pass:undefined,dragging:false};
   replay=r;
-  const clock=time=>{const pass=passAt(passes,time);ui.clockTime.textContent=formatClock(new Date(time).toISOString());ui.clockPass.textContent=pass?t('live.pass',{sat:SAT_NAMES[pass.sat]??pass.sat,time:new Date(pass.start).toISOString().slice(11,16)}):'';};
-  function paint(c) {
-    const s=c.state,a=clusterAttrs(c,clusterHeight(Math.max(1,s.n)),r.k);
-    c.flame.setAttribute('transform',a.flame.transform);
-    c.flame.setAttribute('class',`live-flame ${s.n21>s.n20?'live-n21':'live-n20'} ${frpClass(s.frpMax)}`);
-    c.count.setAttribute('transform',a.count.transform);c.count.textContent=s.n>=3?number(s.n):'';
-  }
   function fire(i,animate) {
     const c=r.clusters[r.memberOf[i]],d=dets[i],s=c.state;
-    s.n++;if(d.sat==='N21')s.n21++;else s.n20++;s.frpMax=Math.max(s.frpMax,Number.isFinite(d.frp)?d.frp:0);
-    paint(c);
-    if(!s.shown){s.shown=true;c.ignite.setAttribute('opacity','1');if(animate)c.ignite.animate([{opacity:0,transform:'scale(.2)'},{opacity:1,transform:'scale(1)'}],{duration:450,easing:'cubic-bezier(.22,1,.36,1)'});}
+    s.n++;if(d.sat==='N21')s.n21++;else s.n20++;s.frpMax=Math.max(s.frpMax,Number.isFinite(d.frp)?d.frp:0);s.lastPlay=Math.max(s.lastPlay,d.playAt);r.shown++;
+    paintCluster(c,c,s,r.k);
+    const motion=animate&&!reducedMotion();
+    if(!s.shown){s.shown=true;c.ignite.setAttribute('opacity','1');if(motion)c.ignite.animate([{opacity:0,transform:'scale(.2)'},{opacity:1,transform:'scale(1)'}],{duration:450,easing:'cubic-bezier(.22,1,.36,1)'});}
+    if(motion){const now=performance.now();if(now-(c.ringAt??0)>300){c.ringAt=now;c.ring.animate([{opacity:.95,transform:'scale(.35)'},{opacity:0,transform:'scale(2.6)'}],{duration:1000,easing:'cubic-bezier(.22,1,.36,1)'});}}
   }
-  function reset() { r.pointer=0; for(const c of r.clusters){c.state={n:0,n20:0,n21:0,frpMax:0,shown:false};c.ignite.setAttribute('opacity','0');c.count.textContent='';} }
-  function seek(time,animate) { while(r.pointer<order.length&&dets[order[r.pointer]].time<=time)fire(order[r.pointer++],animate); clock(time); }
-  function applyModis() {
-    for(const c of r.clusters){if(r.modis){const p=c.members.reduce((sum,i)=>sum+dets[i].p,0)/c.members.length;c.group.setAttribute('opacity',p.toFixed(3));}else c.group.removeAttribute('opacity');}
+  function reset() { r.pointer=0;r.shown=0;r.time=-Infinity; for(const c of r.clusters){c.state={n:0,n20:0,n21:0,frpMax:0,shown:false,lastPlay:-Infinity,look:''};c.ignite.setAttribute('opacity','0');c.count.textContent='';c.group.setAttribute('class','live-cluster');} }
+  function render() {
+    const ended=r.time>=tl.end;
+    for(const c of r.clusters){const s=c.state,look=!s.shown||ended?'':r.playhead-s.lastPlay<FRESH_MS?'is-fresh':'is-seen';if(look!==s.look){s.look=look;c.group.setAttribute('class',`live-cluster ${look}`.trim());}}
+    ui.countNow.textContent=number(ended?total:r.shown);ui.countOf.textContent=ended?'':t('live.countOf',{total:number(total)});
+    const clock=formatClock(new Date(Math.min(r.time,tl.end)).toISOString());ui.clockTime.textContent=clock;
+    const pass=ended?null:passNow(passes,r.time);
+    if(pass!==r.pass){r.pass=pass;ui.passing.classList.toggle('is-on',!!pass);if(pass)ui.passingText.textContent=t('live.passing',{sat:SAT_NAMES[pass.sat]});}
+    const tlv=r.timeline;
+    if(tlv){tlv.head.setAttribute('transform',`translate(${tlv.x(Math.min(r.time,tl.end)).toFixed(1)} 0)`);for(const b of tlv.binEls){const future=b.t0>r.time;if(future!==b.future){b.future=future;b.g.setAttribute('class',future?'tl-bin is-future':'tl-bin');}}}
+    ui.slider.setAttribute('aria-valuenow',String(Math.round((Math.min(r.time,tl.end)-tl.start)/60000)));ui.slider.setAttribute('aria-valuetext',clock);
   }
+  function goTo(time,animate) { if(time<r.time)reset(); while(r.pointer<order.length&&dets[order[r.pointer]].time<=time)fire(order[r.pointer++],animate); r.time=time; render(); }
   function build() {
     const width=ui.svg.getBoundingClientRect().width;if(!width)return false;
     r.k=VIEW.width/width;
     ui.svg.querySelector('.live-clusters')?.remove();
     const layer=svgNode('g',{class:'live-clusters'});
     r.clusters=clusterDetections(dets,r.k);r.memberOf=[];
-    r.clusters.forEach((c,ci)=>{
-      c.members.forEach(i=>{r.memberOf[i]=ci;});
-      const a=clusterAttrs(c,clusterHeight(c.n),r.k),label=clusterTitle(c,dets);
-      c.group=svgNode('g',{class:'live-cluster',...a.position,tabindex:0,role:'img','aria-label':label});
-      const title=svgNode('title',{});title.textContent=label;
-      c.ignite=svgNode('g',a.ignite);c.flame=svgNode('use',{href:'#flame',class:'live-flame'});
-      c.count=svgNode('text',{class:'live-count','font-size':(13*r.k).toFixed(2),'stroke-width':(3*r.k).toFixed(2),'aria-hidden':'true'});
-      c.ignite.append(c.flame,c.count);c.group.append(title,c.ignite);layer.append(c.group);
-    });
+    r.clusters.forEach((c,ci)=>{c.members.forEach(i=>{r.memberOf[i]=ci;});Object.assign(c,clusterNode(c,dets,r.k,true));layer.append(c.group);});
     ui.svg.append(layer);
-    reset();applyModis();
+    r.timeline=buildTimeline(ui.timeline,tl,passes);
+    reset();
     return true;
   }
   const running=()=>!r.userPaused&&!r.hoverPaused&&r.inView;
@@ -93,82 +175,107 @@ function startReplay(ui,dets,passes) {
   function frame(now) {
     r.raf=0;if(!running()){r.lastNow=null;return;}
     if(r.lastNow!=null)r.playhead+=Math.min(100,now-r.lastNow);r.lastNow=now;
-    if(r.playhead<=REPLAY_MS)seek(replayTime(r.playhead/REPLAY_MS,first,last),true);
-    else if(r.playhead<=REPLAY_MS+HOLD_MS)seek(last,true);
+    if(r.playhead<=REPLAY_MS)goTo(scheduleTime(r.playhead/REPLAY_MS,schedule),true);
+    else if(r.playhead<=REPLAY_MS+HOLD_MS)goTo(tl.end,true);
     else if(r.once){r.once=false;r.userPaused=true;r.playhead=REPLAY_MS+HOLD_MS;updateButton();return;}
-    else{reset();r.playhead=0;seek(first,true);}
+    else{r.playhead=0;goTo(tl.start,true);}
     r.raf=requestAnimationFrame(frame);
   }
   function kick(){if(running()&&!r.raf){r.lastNow=null;r.raf=requestAnimationFrame(frame);}}
-  r.rebuild=()=>{const at=r.playhead<=REPLAY_MS?replayTime(r.playhead/REPLAY_MS,first,last):last;if(build())seek(at,false);};
+  function seekTo(time) { r.userPaused=true;updateButton();r.playhead=time>=tl.end?REPLAY_MS:scheduleProgress(time,schedule)*REPLAY_MS;goTo(time,false); }
+  r.rebuild=()=>{const at=r.time;if(build())goTo(at,false);};
   if(!build())return;
-  if(r.userPaused){r.playhead=REPLAY_MS+HOLD_MS;seek(last,false);}else seek(first,false);
+  if(r.userPaused){r.playhead=REPLAY_MS+HOLD_MS;goTo(tl.end,false);}else goTo(tl.start,false);
   updateButton();
   ui.play.addEventListener('click',()=>{
     r.userPaused=!r.userPaused;
-    if(!r.userPaused&&r.playhead>=REPLAY_MS+HOLD_MS){reset();r.playhead=0;r.once=reducedMotion();}
+    if(!r.userPaused&&r.playhead>=REPLAY_MS){r.playhead=0;goTo(tl.start,false);r.once=reducedMotion();}
     updateButton();kick();
   });
+  const fromPointer=e=>{const box=ui.slider.getBoundingClientRect(),pad=r.timeline?.pad??10;return timelineSeek((e.clientX-box.left-pad)/Math.max(1,box.width-2*pad),tl.start,tl.end);};
+  ui.slider.addEventListener('pointerdown',e=>{r.dragging=true;ui.slider.setPointerCapture?.(e.pointerId);seekTo(fromPointer(e));});
+  ui.slider.addEventListener('pointermove',e=>{if(r.dragging)seekTo(fromPointer(e));});
+  for(const type of ['pointerup','pointercancel'])ui.slider.addEventListener(type,()=>{r.dragging=false;});
+  ui.slider.addEventListener('keydown',e=>{const next=timelineKey(e.key,Math.min(r.time,tl.end),tl.start,tl.end);if(next==null)return;e.preventDefault();seekTo(next);});
   ui.frame.addEventListener('pointerenter',()=>{r.hoverPaused=true;});
   ui.frame.addEventListener('pointerleave',()=>{r.hoverPaused=false;kick();});
   ui.frame.addEventListener('focusin',()=>{r.hoverPaused=true;});
   ui.frame.addEventListener('focusout',()=>{r.hoverPaused=false;kick();});
-  if(ui.modis)ui.modis.addEventListener('click',()=>{r.modis=!r.modis;ui.modis.setAttribute('aria-pressed',String(r.modis));ui.modisResult.hidden=!r.modis;applyModis();});
   r.observer=new IntersectionObserver(entries=>{for(const e of entries)r.inView=e.isIntersecting;kick();},{threshold:.2});
   r.observer.observe(ui.frame);
 }
-function onLiveResize(){clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>replay?.rebuild(),100);}
-function renderLive(snapshot,names,geo,health) {
+// Comparación VIIRS / MODIS: dos mapas fijos. En móvil, pestañas.
+function buildCompare(geo,dets,selection,expected) {
+  const wrap=node('div','live-compare');wrap.dataset.active='modis';
+  wrap.append(node('h3','live-compare-title',t('live.modisToggle')));
+  const tabs=node('div','live-compare-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label',t('live.modisToggle'));
+  const subset=selection.map(i=>dets[i]);
+  const panels=[['viirs',t('live.compareViirs'),number(dets.length),dets],['modis',t('live.compareModis'),t('live.approx',{n:number(expected)}),subset]].map(([id,label,figure,points])=>{
+    const tab=node('button','live-compare-tab');tab.type='button';tab.id=`compare-tab-${id}`;tab.setAttribute('role','tab');tab.setAttribute('aria-controls',`compare-panel-${id}`);
+    tab.textContent=id==='viirs'?'VIIRS':'MODIS';tabs.append(tab);
+    const panel=node('div',`live-compare-panel compare-${id}`);panel.id=`compare-panel-${id}`;panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',`compare-tab-${id}`);
+    const head=node('p','live-compare-head');head.append(node('span','live-compare-label',label),node('strong','live-compare-figure',figure));
+    const svg=mapSvg(geo);svg.setAttribute('class','live-compare-map');
+    panel.append(head,svg);
+    return {id,tab,panel,svg,points};
+  });
+  const select=id=>{wrap.dataset.active=id;for(const p of panels){p.tab.setAttribute('aria-selected',String(p.id===id));p.tab.tabIndex=p.id===id?0:-1;}draw();};
+  for(const p of panels){p.tab.addEventListener('click',()=>select(p.id));p.tab.addEventListener('keydown',e=>{if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;e.preventDefault();const other=panels.find(q=>q!==p);select(other.id);other.tab.focus();});}
+  const grid=node('div','live-compare-grid');grid.append(...panels.map(p=>p.panel));
+  const note=node('p','live-modis-note',t('live.modisNote'));
+  const result=node('p','visually-hidden',t('live.modisResult',{n:number(expected),total:number(dets.length)}));
+  wrap.append(tabs,grid,result,note);
+  function draw(){for(const p of panels)drawStaticMap(p.svg,p.points);}
+  select('modis');
+  return {wrap,draw};
+}
+function onLiveResize(){clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{replay?.rebuild();replay?.compare?.draw();},100);}
+function renderLive(snapshot,names,geo,health,notice) {
   const target=document.getElementById('live-content'),s=liveSummary(snapshot,names);
-  const status=node('p','live-status',`${t('live.capture',{date:formatUtc(snapshot.generado)})} · ${t('live.last',{date:formatUtc(snapshot.ultima_deteccion_utc)})}`);status.setAttribute('aria-live','polite');
-  const stats=node('div','live-stats');[
-    [t('live.detected'),number(s.nDetecciones)],
-    [t('live.cells',{date:formatDay(snapshot.dia_comparado)}),number(s.nacional.celdas_dia)],
-    [t('live.national'),levelBadge(s.nacional.nivel)]
-  ].forEach(([label,value],i)=>{const card=node('div',i===0?'live-stat live-stat-lead':'live-stat');card.append(node('strong',i===2?`live-level level-${s.nacional.nivel??'none'}`:'',value),node('span','live-stat-label',label));if(i===1)card.append(node('span','live-median-context',t('live.medianContext',{median:number(s.nacional.base_p50)})));stats.append(card);});
-  const top=node('div','live-top');top.append(stats,status);
-  if(s.stale)top.append(node('p','live-stale',t('live.stale',{hours:Math.floor(s.ageHours)})));
-  const frame=node('div','live-map-frame'),svg=svgNode('svg',{viewBox:`0 0 ${VIEW.width} ${VIEW.height}`,role:'group','aria-labelledby':'live-map-title live-map-desc'});
-  const title=svgNode('title',{id:'live-map-title'});title.textContent=t('live.mapTitle');const desc=svgNode('desc',{id:'live-map-desc'});desc.textContent=t('live.mapDesc');svg.append(title,desc);
   ensureFlameDefs();
-  geo.features.forEach(f=>svg.append(svgNode('path',{d:geometryToPath(f.geometry),class:'live-outline'})));
-  frame.append(svg);
-  const overlap=health?.mx?.overlap_probability;
-  const probabilities=Array.isArray(overlap)?modisProbabilities(snapshot.detecciones,overlap):[];
-  const expected=modisExpected(probabilities);
-  const dets=snapshot.detecciones.map((d,i)=>{const [x,y]=project(d.lon,d.lat);return {x,y,frp:d.frp,sat:d.sat,time:detectionTime(d),p:probabilities[i]??1};});
+  const status=node('p','live-status',`${t('live.capture',{date:formatUtc(snapshot.generado)})} · ${t('live.last',{date:formatUtc(snapshot.ultima_deteccion_utc)})}`);
+  const stats=node('div','live-stats');
+  const lead=node('div','live-stat live-stat-lead'),leadValue=node('strong','live-count-value'),countNow=node('span','live-count-now',number(s.nDetecciones)),countOf=node('span','live-count-of');
+  leadValue.append(countNow,countOf);lead.append(leadValue,node('span','live-stat-label',t('live.detected')));stats.append(lead);
+  [[t('live.cells',{date:formatDay(snapshot.dia_comparado)}),number(s.nacional.celdas_dia)],[t('live.national'),levelBadge(s.nacional.nivel)]].forEach(([label,value],i)=>{const card=node('div','live-stat');card.append(node('strong',i===1?`live-level level-${s.nacional.nivel??'none'}`:'',value),node('span','live-stat-label',label));if(i===0)card.append(node('span','live-median-context',t('live.medianContext',{median:number(s.nacional.base_p50)})));stats.append(card);});
+  const top=node('div','live-top');top.append(stats,status);
+  const frame=node('div','live-map-frame'),svg=mapSvg(geo,t('live.mapTitle'),t('live.mapDesc'),'live-map');
+  const passing=node('p','live-passing');passing.setAttribute('aria-hidden','true');const passingText=node('span','');passing.append(satGlyph(),passingText);
+  frame.append(svg,passing);
+  const dets=snapshot.detecciones.map(d=>{const [x,y]=project(d.lon,d.lat);return {x,y,frp:d.frp,sat:d.sat,time:detectionTime(d)};});
+  const passes=satellitePasses(snapshot.detecciones),tl=timelineBins(snapshot.detecciones);
   const bar=node('div','live-map-bar');
-  const clockText=node('p','live-clock'),clockTime=node('span','live-clock-time'),clockPass=node('span','live-clock-pass');clockText.append(clockTime,clockPass);
+  const clockText=node('p','live-clock'),clockTime=node('span','live-clock-time');clockText.append(clockTime);
   const controls=node('div','live-controls');
   const play=node('button','live-play');play.type='button';controls.append(play);
-  let modis=null,modisResult=null;
-  if(expected!=null){
-    modis=node('button','live-modis-toggle',t('live.modisToggle'));modis.type='button';modis.setAttribute('aria-pressed','false');controls.append(modis);
-    modisResult=node('div','live-modis');modisResult.hidden=true;modisResult.setAttribute('aria-live','polite');
-    modisResult.append(node('p','live-modis-figure',t('live.modisResult',{n:number(expected),total:number(snapshot.detecciones.length)})),node('p','live-modis-note',t('live.modisNote')));
-  }
   bar.append(clockText,controls);
+  const slider=node('div','live-timeline');slider.tabIndex=0;slider.setAttribute('role','slider');slider.setAttribute('aria-label',t('live.timelineLabel'));slider.setAttribute('aria-valuemin','0');slider.setAttribute('aria-valuemax',String(Math.round((tl.end-tl.start)/60000)));
+  const timelineBox=node('div','live-timeline-svg');slider.append(timelineBox);
   if(!resizeBound){window.addEventListener('resize',onLiveResize);resizeBound=true;}
   const legend=node('div','live-legend');
   legend.append(
-    legendGroup(t('live.legendShape'),[[legendFlame(21,'live-n20 flame-mid'),'NOAA-20'],[legendFlame(21,'live-n21 flame-mid'),'NOAA-21']]),
-    legendGroup(t('live.legendColor'),[[legendFlame(21,'live-n20 flame-low'),t('live.frpLow',{a:FRP_CUTS[0]})],[legendFlame(21,'live-n20 flame-mid'),t('live.frpMid',{a:FRP_CUTS[0],b:FRP_CUTS[1]})],[legendFlame(21,'live-n20 flame-high'),t('live.frpHigh',{b:FRP_CUTS[1]})]]),
-    legendGroup(t('live.legendSize'),[1,5,20].map(n=>[legendFlame(clusterHeight(n),'live-n20 flame-mid'),t(n===1?'live.sizeOne':'live.sizeMany',{n:number(n)})])),
-    node('p','live-legend-note',t('live.flameNote')));
+    legendRow(t('live.legendShape'),[[legendFlame(18,'live-n20 flame-mid'),'NOAA-20'],[legendFlame(18,'live-n21 flame-mid'),'NOAA-21']]),
+    legendRow(t('live.legendColor'),[[legendFlame(18,'live-n20 flame-low'),t('live.frpTickLow',{a:FRP_CUTS[0]}),t('live.frpLow',{a:FRP_CUTS[0]})],[legendFlame(18,'live-n20 flame-mid'),t('live.frpTickMid',{a:FRP_CUTS[0],b:FRP_CUTS[1]}),t('live.frpMid',{a:FRP_CUTS[0],b:FRP_CUTS[1]})],[legendFlame(18,'live-n20 flame-high'),t('live.frpTickHigh',{b:FRP_CUTS[1]}),t('live.frpHigh',{b:FRP_CUTS[1]})]]),
+    legendRow(t('live.legendSize'),[1,5,20].map(n=>[legendFlame(clusterHeight(n),'live-n20 flame-mid'),number(n),t(n===1?'live.sizeOne':'live.sizeMany',{n:number(n)})])),
+    legendRow(t('live.legendTime'),[[legendRing(),t('live.legendFresh')],[legendFlame(18,'live-n20 flame-mid legend-seen'),t('live.legendSeen')]]));
+  const overlap=health?.mx?.overlap_probability;
+  const probabilities=Array.isArray(overlap)?modisProbabilities(snapshot.detecciones,overlap):[];
+  const expected=modisExpected(probabilities);
+  const compare=expected!=null?buildCompare(geo,dets,modisSelection(probabilities,expected),expected):null;
   const detectionTable=node('div','live-detections');const detectionButton=node('button','secondary',t('live.showDetections',{shown:Math.min(snapshot.detecciones.length,50),total:snapshot.detecciones.length}));detectionButton.type='button';detectionButton.setAttribute('aria-expanded','false');detectionTable.append(detectionButton);const table=node('table');table.hidden=true;table.append(node('caption','',t('live.tableCaption')));const header=table.createTHead().insertRow();for(const key of ['state','sensor','dateUtc','frp'])header.append(node('th','',t(`live.${key}`)));const body=table.createTBody();snapshot.detecciones.slice().sort((a,b)=>(b.frp??0)-(a.frp??0)).slice(0,50).forEach(d=>{const row=body.insertRow();for(const value of [regionName(d.estado,names),d.sat,`${d.fecha} ${d.hora_utc}`,d.frp==null?t('common.noData'):number(d.frp)])row.append(node('td','',value));});detectionTable.append(table);detectionButton.addEventListener('click',()=>{table.hidden=!table.hidden;detectionButton.setAttribute('aria-expanded',String(!table.hidden));});
   const ranking=node('div','live-ranking');ranking.append(node('h3','',t('live.rankTitle')));if(!s.ranking.length)ranking.append(node('p','',t('live.noElevated')));
   else {const list=node('ol','live-rank-list');s.ranking.forEach(item=>{const row=node('li','live-rank-row');row.append(node('strong','',item.name),node('span','',rankingComparison(item)),node('span',`live-level level-${item.nivel}`,levelBadge(item.nivel)));list.append(row);});ranking.append(list);}
-  ranking.append(node('p','live-ranking-note',t('live.rankNote')));
-  const method=node('details','live-method');method.append(node('summary','',t('live.methodTitle')));for(let i=1;i<=6;i++)method.append(node('p','',t(`live.method.${i}`)));
+  const method=node('details','live-method');method.append(node('summary','',t('live.methodTitle')),node('p','',t('live.flameNote')));for(let i=1;i<=6;i++)method.append(node('p','',t(`live.method.${i}`)));method.append(node('p','',t('live.rankNote')));
   const after=node('div','live-after');after.append(ranking,detectionTable,method);
-  const mapBlock=node('div','live-map-block');mapBlock.append(bar,frame);if(modisResult)mapBlock.append(modisResult);mapBlock.append(legend);
-  const hero=node('div','live-hero');hero.append(top,mapBlock);target.replaceChildren(hero,after);
-  startReplay({svg,frame,play,modis,modisResult,clockTime,clockPass},dets,satellitePasses(snapshot.detecciones));
-  animateLive();
+  const mapBlock=node('div','live-map-block');if(notice)mapBlock.append(node('p','live-stale',notice));mapBlock.append(bar,frame,slider,legend);
+  const hero=node('div','live-hero');hero.append(top,mapBlock);
+  target.replaceChildren(...[hero,compare?.wrap,after].filter(Boolean));
+  startReplay({svg,frame,play,clockTime,passing,passingText,slider,timeline:timelineBox,countNow,countOf},dets,passes,tl);
+  if(replay)replay.compare=compare;
+  compare?.draw();
 }
 export async function loadLive(names,geo,health) {
   const target=document.getElementById('live-content');
-  let staleMessage=null;
-  try {const response=await fetch('data/live_snapshot.json');if(!response.ok)throw new Error();const data=await response.json();if(!validLiveSnapshot(data,Object.keys(names).filter(id=>id!=='MX')))throw new Error();if(isStale(data.generado)){staleMessage=t('live.stale',{hours:Math.floor(ageHours(data.generado))});throw new Error();}renderLive(data,names,geo,health);}
-  catch {stopReplay();const note=node('p','live-stale',staleMessage??t('live.unavailable'));const mini=node('div','calendar-mini');const source=document.getElementById('calendar-svg');if(source){const clone=source.cloneNode(true);clone.removeAttribute('id');clone.removeAttribute('aria-labelledby');clone.setAttribute('aria-hidden','true');clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));mini.append(clone);}const link=node('a','',t('live.explore'));link.href='#calendario';target.replaceChildren(note,mini,link);}
+  try {const response=await fetch('data/live_snapshot.json');if(!response.ok)throw new Error();const data=await response.json();const view=liveView(data,Object.keys(names).filter(id=>id!=='MX'));if(view.mode!=='full')throw new Error();renderLive(data,names,geo,health,view.notice);}
+  catch {stopReplay();const note=node('p','live-stale',t('live.unavailable'));const mini=node('div','calendar-mini');const source=document.getElementById('calendar-svg');if(source){const clone=source.cloneNode(true);clone.removeAttribute('id');clone.removeAttribute('aria-labelledby');clone.setAttribute('aria-hidden','true');clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));mini.append(clone);}const link=node('a','',t('live.explore'));link.href='#calendario';target.replaceChildren(note,mini,link);}
 }
