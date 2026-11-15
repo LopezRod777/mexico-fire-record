@@ -1,0 +1,2 @@
+mx_states.geojson: 32 estados de México. Fuente: Natural Earth, ne_10m_admin_1_states_provinces (dominio público, https://www.naturalearthdata.com/about/terms-of-use/).
+Se excluyó un polígono sin nombre (adm1_code MEX+99?). Coordenadas redondeadas a 3 decimales (~110 m). Generado el 2026-11-14.

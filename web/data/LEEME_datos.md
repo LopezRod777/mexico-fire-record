@@ -1,0 +1,17 @@
+# Datos de la web
+
+Todos los JSON usan UTF-8, números finitos y `null` para valores no disponibles. Las regiones son `MX` y los 32 identificadores del GeoJSON; `OUT` se excluye de los agregados nacionales.
+
+| Archivo | Claves y tipos | Unidad y significado de `null` |
+|---|---|---|
+| `meta.json` | `generado`: texto ISO UTC; `filas_entrada_por_sensor`: objeto de enteros; `definiciones`: objeto de textos | Conteos de filas de entrada y definiciones metodológicas. |
+| `series_monthly.json` | `unidad`: texto; `months`: textos `AAAA-MM`; `sensors`: textos; `region_names`: id → nombre; `regions`: id → sensor → arreglo de números o `null` | Celdas-día distintas de 0.05° con detección, unión día+noche. `null` antes del inicio del sensor; 0 después si no hubo detecciones. |
+| `cells_yearly.json` | `years`: enteros; `lat`, `lon`: números; `state`: ids; `cell_days`: sensor → celda → año → entero o `null` | Latitud y longitud del centro de celdas 0.25°. Conteo anual de celdas-día de 0.05°. `null` si el sensor aún no existía. Columnas alineadas por índice. |
+| `harmonized.json` | `months`: textos; `regions`: id → `valor`, `fuente`, `lo`, `hi`, `deriva` (arreglos mensuales), `k_aqua`, `k_terra` (12 razones), `validation`; `validation_resumen`: par → cinco estadísticas numéricas o `null` y `n_regiones` entero | Escala VIIRS S-NPP. Enero 2012 se estima con Aqua por ser parcial en S-NPP; desde febrero 2012 se usa S-NPP. `null` en `valor` si falta la razón de ajuste; `lo`/`hi` son `null` para S-NPP o sin validación suficiente. La banda no es un intervalo estadístico formal. `deriva` marca 2022 en adelante. |
+| `baseline_doy.json` | `regions`: id → `p10`, `p50`, `p90`, `p99`, `max`, `n_valores` (arreglos de 366) | Detecciones diarias S-NPP 2012–2025 en ventana ±3 días del día ordinal, sin cruzar fin de año. Percentiles y máximo son `null` sin observaciones; `n_valores` es 0. |
+| `live_snapshot.json` | `generado`, `ultima_deteccion_utc`, `ventana_horas`, `dia_comparado`, `doy`, `fuentes`, `nota`, `descartadas_fuera_de_mexico`, `n_detecciones_24h`, `nacional`, `estados`, `detecciones` | VIIRS N20/N21 NRT descargado localmente. `detecciones` contiene puntos de México en las 24 h previas a `generado`; `descartadas_fuera_de_mexico` cuenta filas `OUT` de ambos CSV completos. Cada resumen regional incluye celdas distintas del día UTC anterior por sensor, su media `celdas_dia`, número de sensores usados, percentiles S-NPP del día ordinal y `nivel`. |
+| `health.json` | `mx`, `us`: `lst_by_year`, `ratio_by_year`, `versions_by_year`, `overlap_probability` → arreglos de filas con columnas CSV originales | Conteos y año son enteros; razones, probabilidades y mediana LST son números decimales. `satellite`, `daynight`, `bin`, `version` y `sensor` son texto. Campos vacíos o NaN/Infinity pasan a `null`. |
+
+En `validation`, cada par (`aqua->snpp`, `terra->snpp`) incluye error mediano con razón mensual, error mediano con razón global, sesgo agregado, número de meses e indicador de muestra insuficiente (<24 meses). Las razones se estiman solo con 2012–2021, dejando un año fuera durante la validación.
+
+`validation_resumen` agrega solo estados con validación suficiente (excluye `MX`): `mediana_mape_razon_mensual`, `mediana_mape_razon_global`, `p25_mape_razon_mensual`, `p75_mape_razon_mensual`, `max_mape_razon_mensual` y `n_regiones`. Enero 2012 se excluye del ajuste y de la validación.

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'">
+  <title>Registro de incendios de México, 2000–2025</title>
+  <meta name="description" content="Serie de detecciones de incendios en México y salud del registro satelital, 2000–2025.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23ff7a1a'%2F%3E%3C%2Fsvg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="#inicio">Registro de incendios</a>
+    <nav aria-label="Secciones">
+      <a href="#region">Región</a><a href="#calendario">Calendario</a><a href="#salud">Salud</a><a href="#confianza">Confianza</a><a href="#hoy">Hoy</a><a href="#metodo">Método</a>
+    </nav>
+    <button class="primary header-download" type="button" data-download>Descargar serie (CSV)</button>
+  </div>
+</header>
+<main id="inicio" class="container">
+  <div class="intro"><p class="kicker">NASA FIRMS / México</p><h1>Registro de incendios de México, 2000–2025</h1><p class="subtitle">Dos sensores de la NASA, una sola serie, y cuánto puedes confiar en ella.</p></div>
+  <p id="load-error" class="error" role="alert"></p>
+  <div class="explore-grid">
+    <section id="region" class="panel" aria-labelledby="region-title">
+      <div class="section-heading"><div><span class="section-number">01 / 06</span><h2 id="region-title">Región y mapa</h2></div></div>
+      <label for="region-select">Región</label><select id="region-select"><option value="MX">México (nacional)</option></select>
+      <div class="control-row"><fieldset><legend>Sensor</legend><label><input type="radio" name="map-sensor" value="Aqua" checked>Aqua</label><label><input type="radio" name="map-sensor" value="Terra">Terra</label><label><input type="radio" name="map-sensor" value="SNPP">S-NPP</label></fieldset></div>
+      <label for="map-year">Año: <output id="map-year-value" for="map-year">2024</output></label><input id="map-year" type="range" min="2000" max="2025" value="2024">
+      <div class="map-frame"><svg id="map-svg" viewBox="0 0 700 440" preserveAspectRatio="xMidYMid meet" role="group" aria-labelledby="map-title map-desc"><title id="map-title">Mapa de actividad anual</title><desc id="map-desc">Celdas coloreadas por conteo anual y contornos de estados; selecciona un estado para cambiar la región.</desc></svg></div>
+      <p id="map-empty" class="note" role="status"></p><div class="scale"><span>0</span><div class="scale-ramp"></div><span id="map-max">0</span></div><p class="note">Celdas de 0.25°; escala recortada al percentil 98 de las celdas visibles.</p>
+    </section>
+    <section id="calendario" class="panel" aria-labelledby="calendar-title">
+      <div class="section-heading"><div><span class="section-number">02 / 06</span><h2 id="calendar-title">Calendario de actividad</h2></div><button class="primary" type="button" data-download>Descargar serie (CSV)</button></div>
+      <p id="calendar-region" class="note">México</p>
+      <div class="calendar-controls"><label for="calendar-view">Vista<select id="calendar-view"><option value="harmonized">Armonizada (escala VIIRS)</option><option value="Terra">Terra</option><option value="Aqua">Aqua</option><option value="SNPP">S-NPP</option></select></label><label for="calendar-metric">Métrica<select id="calendar-metric"><option value="count">Conteo</option><option value="anomaly">Anomalía vs. el mismo mes de otros años</option></select></label></div>
+      <div id="calendar-graphic" class="calendar-graphic"><svg id="calendar-svg" viewBox="0 0 390 652" role="group" aria-labelledby="calendar-svg-title calendar-svg-desc"><title id="calendar-svg-title">Actividad mensual, 2000 a 2025</title><desc id="calendar-svg-desc">Cada celda es un mes; selecciona una para ver el detalle. Disponible también como tabla.</desc></svg></div>
+      <div id="calendar-table-wrap" class="table-scroll" hidden></div>
+      <div class="legend"><span><i class="legend-swatch missing"></i> Sin dato</span><span id="estimated-legend"><i class="legend-swatch estimated"></i> Estimado (antes de 2012)</span><span id="drift-legend" hidden><i class="legend-swatch drift"></i> Pase desviado de su hora (deriva orbital, 2022 en adelante)</span></div>
+      <div class="calendar-scale"><div class="scale-ramp"></div><div id="calendar-scale" class="calendar-scale-ticks" aria-label="Escala de color"></div></div>
+      <button id="table-toggle" class="secondary" type="button" aria-expanded="false">Ver como tabla</button>
+      <div id="calendar-detail" class="detail" aria-live="polite">Selecciona un mes para ver sus datos.</div>
+    </section>
+  </div>
+  <section id="salud" aria-labelledby="health-title"><div class="section-heading"><div><span class="section-number">03 / 06</span><h2 id="health-title">Salud del registro</h2></div><p>Cuatro formas de leer sus límites</p></div><div class="health-grid">
+    <article class="panel"><h3>Hora a la que pasa cada satélite</h3><label for="lst-place">Lugar</label><select id="lst-place"><option value="mx">México</option><option value="us">EE. UU.</option></select><svg id="lst-chart" class="chart" viewBox="0 0 520 260" role="img"></svg><p class="meaning">Qué significa: la hora de observación cambia lo que el satélite puede ver. Desde 2022 Aqua pasa cerca de 1 hora más tarde y Terra cerca de 1 hora más temprano.</p><p class="limit">Límite: la web marca la deriva desde 2022, pero no corrige los conteos por ello.</p></article>
+    <article class="panel"><h3>Cuánto ve cada sensor frente a S-NPP</h3><div class="inline-controls"><label for="ratio-place">Lugar<select id="ratio-place"><option value="mx">México</option><option value="us">EE. UU.</option></select></label><label for="ratio-day">Pase<select id="ratio-day"><option value="D">Día</option><option value="N">Noche</option></select></label></div><svg id="ratio-chart" class="chart" viewBox="0 0 520 260" role="img"></svg><p class="meaning">Qué significa: Si un sensor cambia de hora de paso, su conteo respecto a S-NPP puede cambiar.</p><p class="limit">En México y EE. UU. el cociente Terra/S-NPP de día baja desde 2022; los otros cocientes no cambian en la misma dirección en los dos países. La deriva por sí sola no explica los conteos.</p></article>
+    <article class="panel"><h3>Versión del producto MODIS</h3><label for="version-place">Lugar</label><select id="version-place"><option value="mx">México</option><option value="us">EE. UU.</option></select><div id="version-table" aria-label="Periodos de versión MODIS por satélite"></div><p class="version-legend"><span class="version-chip version-changed">Último periodo</span> Cambio de versión</p><p class="meaning">Qué significa: Un cambio de versión puede cambiar la calibración.</p><p class="limit">Límite: el producto MODIS cambió de versión en 2023 (6.03 → 61.03).</p></article>
+    <article class="panel"><h3>¿MODIS ve lo que ve VIIRS?</h3><label for="overlap-day">Pase</label><select id="overlap-day"><option value="D">Día</option><option value="N">Noche</option></select><svg id="overlap-chart" class="chart" viewBox="0 0 520 260" role="img"></svg><p class="meaning">Qué significa: Probabilidad de que Aqua detecte fuego en la misma celda donde S-NPP lo detectó. La barra de control empareja con el día siguiente: si ambas fueran iguales, el acuerdo sería solo persistencia del fuego.</p><p class="limit">Límite: Celdas de 0.02° (≈2 km); México 2012–2025; con otro tamaño de celda las cifras cambian.</p></article>
+  </div></section>
+  <section id="confianza" class="panel" aria-labelledby="confidence-title"><span class="section-number">04 / 06</span><h2 id="confidence-title">Confianza de la armonización</h2><div id="confidence-content"></div><p class="note">La banda de error de los meses estimados usa este error mediano; no es un intervalo estadístico formal.</p><p class="note">La validación solo cubre 2012–2021 (cuando los sensores se solapan); aplicarla a 2002–2011 es una extrapolación no probada.</p></section>
+  <section id="hoy" class="panel" aria-labelledby="live-title"><span class="section-number">05 / 06</span><h2 id="live-title">Hoy</h2><div id="live-content">Consultando la capa casi en vivo…</div></section>
+  <section id="metodo" class="panel" aria-labelledby="method-title"><span class="section-number">06 / 06</span><h2 id="method-title">Método y límites</h2><ol class="method-list"><li>Unidad: celdas-día con detección. Se divide el territorio en celdas de 0.05° (≈5 km) y se cuenta cuántas celdas tuvieron al menos una detección cada día (día y noche juntos).</li><li>Serie armonizada: en escala VIIRS (S-NPP). Desde febrero de 2012 es el conteo de S-NPP; antes de esa fecha se estima con Aqua (desde julio de 2002) o Terra (antes), multiplicando por un factor mensual calculado con los años 2012–2021, que son los años en que los sensores se solapan antes de la deriva orbital.</li><li>Enero de 2012 es un mes parcial de S-NPP (inicia el 20 de enero) y se estima con Aqua.</li><li>Esto es una estimación, no una equivalencia demostrada entre sensores.</li><li>Sin detección no significa sin fuego: nubes, humo, fuegos pequeños y la hora de paso afectan lo que ve cada satélite.</li><li>Desde 2022 los pases de Aqua y Terra se desvían de su hora (medido en estos mismos datos); la web lo marca, pero no corrige los conteos por ello.</li><li>El producto MODIS cambió de versión en 2023 (6.03 → 61.03).</li><li>S-NPP dejó de entregar datos nuevos el 2 de noviembre de 2026; esta versión no incluye 2026.</li><li>Aproximadamente el 0.6 % de las detecciones cae fuera de los 32 polígonos estatales (costa y mar) y se excluye de los totales.</li><li>Las celdas se asignan a un estado por su centro; en las fronteras puede haber diferencias menores.</li></ol></section>
+</main>
+<footer class="site-footer"><div class="container"><p>Datos: NASA FIRMS (MODIS y VIIRS), <a href="https://firms.modaps.eosdis.nasa.gov">firms.modaps.eosdis.nasa.gov</a></p><p>Contorno de estados: <a href="https://www.naturalearthdata.com">Natural Earth</a> (dominio público)</p><p>Proyecto para <a href="https://www.spaceappschallenge.org">NASA Space Apps Challenge 2026</a></p></div></footer>
+</body>
+</html>
