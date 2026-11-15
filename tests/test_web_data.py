@@ -45,7 +45,7 @@ def majority_ties():
 
 
 def export_determinism():
-    paths = sorted(p for p in (ROOT / "web/data").glob("*.json") if p.name not in ("live_snapshot.json", "tle.json")) + sorted((ROOT / "web/data/geo").glob("*.geojson"))
+    paths = sorted(p for p in (ROOT / "web/data").glob("*.json") if p.name not in ("live_snapshot.json", "tle.json", "localidades_mx.json")) + sorted((ROOT / "web/data/geo").glob("*.geojson"))
     assert len(paths) == 7, [str(path) for path in paths]
 
     def hashes():

@@ -241,6 +241,7 @@ def build():
             "n_regiones": len(valid)}
     write("harmonized.json", {"months": MONTHS, "regions": harmonized, "validation_resumen": validation_resumen,
           "provisional": [month for month in provisional["SNPP"] if month > "2012-01"],
+          "dias_sin_deteccion": {"SNPP": no_detection},
           "metodo_union": {"desde": "2002-07", "hasta": "2011-12",
                            "definicion": "celda-día 0.05° con detección de Terra o Aqua (día y noche)"}})
     print(f"Validación insuficiente: Aqua {insufficient['Aqua']}/33; Terra {insufficient['Terra']}/33; Union {insufficient['Union']}/33")

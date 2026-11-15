@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { citeFacts, citeText } from '../js/cite.js';
-import { seasonMidpoint, seasonShift, seasonVerdict, seasonModel, seasonText } from '../js/season.js';
+import { seasonMidpoint, seasonShift, seasonVerdict, seasonModel, seasonText, PERIOD_B } from '../js/season.js';
 import { anomalies } from '../js/anomaly.js';
 import { setLanguage, dictionaries } from '../js/i18n.js';
 
@@ -104,6 +104,39 @@ test('cita: la mediana es la misma que usa la anomalía del calendario y la band
   }
 });
 
+test('cita: 2026 avisa de los días sin S-NPP y de lo provisional, y el mes por defecto es el último', () => {
+  assert.equal(harmonized.months.at(-1), '2026-10');
+  assert.match(readFileSync(new URL('../js/main.js', import.meta.url), 'utf8'), /renderCite\(state\.region,state\.month\?\?harmonized\.months\.at\(-1\),/);
+  const facts = month => { const f = citeFacts('MX', month, harmonized); return [f.direct, f.missingDays, f.provisional]; };
+  assert.deepEqual(facts('2026-04'), [true, 3, false]);
+  assert.deepEqual(facts('2026-08'), [true, 1, true]);
+  assert.deepEqual(facts('2026-10'), [true, 0, true]);
+  assert.deepEqual(facts('2024-07'), [true, 11, false]);
+  assert.deepEqual(facts('2025-12'), [true, 0, false]);
+  assert.deepEqual(facts('2005-05'), [false, 0, false]);
+  assert.deepEqual(harmonized.dias_sin_deteccion, series.dias_sin_deteccion);
+  assert.equal(citeFacts('MX-JAL', '2026-04', harmonized).missingDays, 3); // el apagón es del sensor: vale para cada estado
+  const LOW = { en: n => `VIIRS S-NPP has no data on ${n} of that month, so the count runs low.`, es: n => `VIIRS S-NPP no tiene datos en ${n} de ese mes, así que el conteo queda bajo.` };
+  const NRT = { en: 'That month comes from near-real-time data, which may change when NASA publishes the standard version.', es: 'Ese mes viene de datos casi en tiempo real, que pueden cambiar cuando NASA publique la versión estándar.' };
+  for (const lang of ['en', 'es']) {
+    setLanguage(lang);
+    const text = month => citeText('MX', month, harmonized, series.region_names, TODAY);
+    const april = text('2026-04'), august = text('2026-08'), october = text('2026-10');
+    // El aviso va pegado a la frase de la mediana, antes del método.
+    assert.ok(april.includes((lang === 'en' ? 'so it is below that median. ' : 'por lo que queda por debajo de esa mediana. ') + LOW[lang](lang === 'en' ? '3 days' : '3 días') + ' '), april);
+    assert.ok(!april.includes(NRT[lang]));
+    assert.ok(august.includes(LOW[lang](lang === 'en' ? '1 day' : '1 día')) && august.includes(NRT[lang]), august);
+    assert.ok(october.includes(NRT[lang] + (lang === 'en' ? ' These figures are' : ' Las cifras son')) && !/runs low|queda bajo/.test(october), october);
+    assert.ok(text('2024-07').includes(LOW[lang](lang === 'en' ? '11 days' : '11 días')));
+    for (const month of ['2025-12', '2005-05', '2012-01']) assert.doesNotMatch(text(month), /runs low|queda bajo|near-real-time|casi en tiempo real/, `${lang} ${month}`);
+    for (const value of [april, august, october]) assert.doesNotMatch(value, /statistically|significant|confidence interval|significativ|intervalo de confianza|[;{}]|undefined|NaN|null/i);
+  }
+  setLanguage('en');
+  assert.match(citeText('MX', '2026-04', harmonized, series.region_names, TODAY), /^In Mexico as a whole, April 2026 had 13,587 cell-days of satellite heat detections in the harmonized series, 0\.46 times the median for that month across all years of the series \(29,291\), so it is below that median\. VIIRS S-NPP has no data on 3 days of that month, so the count runs low\. /);
+  assert.match(citeText('MX', '2026-10', harmonized, series.region_names, TODAY), /^In Mexico as a whole, October 2026 had 1,972 cell-days/);
+  setLanguage('es');
+});
+
 // ---------- Punto medio de la temporada ----------
 test('temporada: punto medio con series de resultado conocido', () => {
   const only = (m, value = 80) => Array.from({ length: 12 }, (_, i) => i === m ? value : 0);
@@ -155,6 +188,11 @@ test('temporada: datos reales, texto en los dos idiomas y recuento de veredictos
   assert.equal(seasonModel('MX-GUA', series, harmonized).verdict.kind, 'unconfirmed');
   const mx = seasonModel('MX', series, harmonized);
   assert.deepEqual([mx.shift.a.n, mx.shift.b.n], [12, 13]);
+  // 2026 llega a octubre: no es un año completo y no entra en el segundo periodo, que sigue en 2013–2025.
+  assert.deepEqual(PERIOD_B, [2013, 2025]);
+  assert.equal(seasonMidpoint(Array.from({ length: 12 }, (_, m) => harmonized.regions.MX.valor[harmonized.months.indexOf(`2026-${String(m + 1).padStart(2, '0')}`)]), 2026), null);
+  assert.deepEqual(seasonShift(harmonized.months, harmonized.regions.MX.valor, [2001, 2012], [2013, 2026]), seasonShift(harmonized.months, harmonized.regions.MX.valor));
+  for (const lang of ['es', 'en']) for (const [key, value] of Object.entries(dictionaries[lang])) if (key.startsWith('season')) assert.doesNotMatch(value, /2026/, key);
   assert.ok(Math.abs(mx.shift.a.median - 129.4) < .05 && Math.abs(mx.shift.b.median - 127.7) < .05);
   assert.equal(seasonModel('MX-DIF', series, harmonized).shift.a.n, 10); // 2001 y 2002 tienen un mes sin dato
   setLanguage('en');

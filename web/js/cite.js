@@ -19,7 +19,9 @@ export function citeFacts(id, month, harmonized) {
   const banded = Number.isFinite(region.lo[i]) && Number.isFinite(region.hi[i]);
   const lo = banded ? region.lo[i] : value, hi = banded ? region.hi[i] : value;
   const error = region.validation[VALIDATION[source] ?? methodKey(harmonized)].mape_razon_mensual;
-  return { month, value, median: med, ratio: med > 0 ? value / med : null, lo, hi, banded, position: lo > med ? 'above' : hi < med ? 'below' : 'within', source, direct, error, extrapolated: !direct && month < '2012-01' };
+  // Solo para conteos directos de S-NPP: días del mes sin datos del sensor y si el mes viene de datos casi en tiempo real.
+  const missingDays = direct ? harmonized.dias_sin_deteccion?.SNPP?.[month] ?? 0 : 0, provisional = direct && Boolean(harmonized.provisional?.includes(month));
+  return { month, value, median: med, ratio: med > 0 ? value / med : null, lo, hi, banded, position: lo > med ? 'above' : hi < med ? 'below' : 'within', source, direct, error, extrapolated: !direct && month < '2012-01', missingDays, provisional };
 }
 export function placeName(id, names) {
   return id === 'MX' ? t('cite.regionNational') : id === 'MX-MEX' ? t('cite.regionMex') : id === 'MX-DIF' ? t('cite.regionDif') : regionName(id, names);
@@ -37,7 +39,9 @@ export function citeText(id, month, harmonized, names = {}, today = new Date()) 
   const date = new Intl.DateTimeFormat(getLanguage() === 'en' ? 'en-US' : 'es-MX', { dateStyle: 'long' }).format(today);
   return [
     t('cite.lead', { region: placeName(id, names), month: longMonth(month), value: count(f.value), compare }) + t((f.banded ? HEADLINE : DIRECT)[f.position], { lo: count(f.lo), hi: count(f.hi) }),
+    ...(f.missingDays ? [t(f.missingDays === 1 ? 'cite.missingOne' : 'cite.missingMany', { n: f.missingDays })] : []),
     f.direct ? t('cite.direct', { error }) : t(f.extrapolated ? 'cite.rescaledOld' : 'cite.rescaled', { source: t(SOURCE[f.source]), error, year: month.slice(0, 4) }),
+    ...(f.provisional ? [t('cite.provisional')] : []),
     t('cite.unit'),
     t('cite.source', { date }),
   ].join(' ');
