@@ -109,13 +109,13 @@ test('captura vieja: se muestra todo con aviso; "no disponible" solo si es invá
   assert.deepEqual(liveView(snapshot, stateIds, at(1)), { mode: 'full', notice: null });
   const old = liveView(snapshot, stateIds, at(7.5));
   assert.equal(old.mode, 'full');
-  assert.match(old.notice, /hace 7 h, y no se actualiza sola/);
+  assert.match(old.notice, /hace 7 h, así que faltan los pases más recientes/);
   assert.match(staleNotice(generated, at(80)), /hace 3 días/);
   assert.equal(ageText(47.9), '47 h');
   assert.equal(liveView({ ...snapshot, detecciones: [] }, stateIds, at(1)).mode, 'unavailable');
   assert.equal(liveView(null, stateIds).mode, 'unavailable');
   setLanguage('en');
-  assert.match(staleNotice(generated, at(80)), /3 days ago, and it does not update automatically/);
+  assert.match(staleNotice(generated, at(80)), /3 days ago, so the most recent passes are missing/);
   setLanguage('es');
   const live = readFileSync(new URL('../js/live.js', import.meta.url), 'utf8');
   assert.doesNotMatch(live, /isStale\(data\.generado\)\)\{[^}]*throw/);
