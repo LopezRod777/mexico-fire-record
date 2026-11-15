@@ -667,3 +667,35 @@ export function formatClock(iso) {
 }
 const englishNames ={ MX:'Mexico (national)', 'MX-DIF':'Mexico City', 'MX-MEX':'State of Mexico' };
 export function regionName(id, names) { return language === 'en' ? englishNames[id] ?? names[id] ?? id : names[id] ?? id; }
+// Textos de la capa de humo (NOAA HMS), en un bloque aparte al final para no reordenar los
+// diccionarios. Mismas claves y marcadores en ES y EN.
+Object.assign(dictionaries.es, {
+    "live.smokeToggle": "Capa de humo",
+    "live.legendSmoke": "Humo trazado por NOAA:",
+    "live.smokeLight": "ligero",
+    "live.smokeMedium": "medio",
+    "live.smokeHeavy": "denso",
+    "live.smokeLead": "Humo trazado por analistas de NOAA:",
+    "live.smokeMany": "{n} áreas tocan México en estas 24 h, la más reciente hasta las {time} UTC del {date}.",
+    "live.smokeOne": "1 área toca México en estas 24 h, hasta las {time} UTC del {date}.",
+    "live.smokeNone": "todavía ninguno sobre México en estas 24 h.",
+    "live.smokeCapture": "Lo trazan sobre imágenes diurnas de GOES, así que el de hoy sigue llegando y aquí se ve el que traía la captura del {capture}.",
+    "live.methodSmoke": "Las manchas grises son áreas de humo que analistas del Hazard Mapping System (HMS) de NOAA trazan sobre imágenes diurnas de GOES. Muestran dónde se vio humo, no el perímetro de un incendio ni la prueba de fuego en un punto, y no se suman a ningún conteo. Ligero, medio y denso son categorías visuales del analista, no concentraciones medidas. De noche no se traza humo y las nubes pueden taparlo, así que la falta de trazo no significa que no haya humo. Las formas se simplifican a unos 0.5 km.",
+    "fire.smokeOver": "Analistas de NOAA trazaron humo sobre este punto entre las {from} y las {to} UTC ({date}). Indica dónde se vio humo desde el espacio, no dónde está el fuego.",
+    "footerSmoke": "Humo: NOAA/NESDIS, Hazard Mapping System (HMS)"
+});
+Object.assign(dictionaries.en, {
+    "live.smokeToggle": "Smoke layer",
+    "live.legendSmoke": "Smoke outlined by NOAA:",
+    "live.smokeLight": "light",
+    "live.smokeMedium": "medium",
+    "live.smokeHeavy": "heavy",
+    "live.smokeLead": "Smoke outlined by NOAA analysts:",
+    "live.smokeMany": "{n} areas touch Mexico in these 24 h, the latest until {time} UTC on {date}.",
+    "live.smokeOne": "1 area touches Mexico in these 24 h, until {time} UTC on {date}.",
+    "live.smokeNone": "none over Mexico in these 24 h yet.",
+    "live.smokeCapture": "They draw it on daytime GOES images, so today’s smoke keeps arriving and this page shows what the snapshot of {capture} held.",
+    "live.methodSmoke": "The gray areas are smoke outlined by analysts of NOAA’s Hazard Mapping System (HMS) on daytime GOES images. They show where smoke was seen, not a fire perimeter or proof of fire at a point, and they are not added to any count. Light, medium and heavy are the analyst’s visual categories, not measured concentrations. Smoke is not outlined at night and clouds can hide it, so a missing outline does not mean there is no smoke. Shapes are simplified to about 0.5 km.",
+    "fire.smokeOver": "NOAA analysts outlined smoke over this point between {from} and {to} UTC ({date}). It shows where smoke was seen from space, not where the fire is.",
+    "footerSmoke": "Smoke: NOAA/NESDIS, Hazard Mapping System (HMS)"
+});

@@ -5,6 +5,9 @@ Lee la llave de la variable de entorno FIRMS_MAP_KEY (nunca la imprime) y escrib
 data/live/raw/<fuente>.csv y data/live/raw/fetch_info.json. Si una descarga VIIRS falla o
 no trae el encabezado esperado, termina con error y no toca los archivos actuales. Si falla
 una fuente extra, se anota en fetch_info.json (fuentes_extra) y la captura de VIIRS sigue.
+
+Además baja de NOAA HMS (sin llave) los polígonos de humo de hoy y de ayer (UTC) como
+data/live/raw/HMS_SMOKE_HOY.zip y HMS_SMOKE_AYER.zip, con la misma tolerancia a fallos.
 """
 import csv
 import io
@@ -12,10 +15,13 @@ import json
 import os
 import sys
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "pipeline"))
+from shapefile_min import ShapefileError, read_zip
+from smoke import SMOKE_FILES, smoke_url
 RAW = ROOT / "data/live/raw"
 BBOX = [-118.4, 14.5, -86.7, 32.7]
 DAY_RANGE = 2
@@ -59,12 +65,39 @@ def fetch_extra(key: str) -> tuple[dict, dict]:
     return texts, status
 
 
+def fetch_smoke(now: datetime) -> tuple[dict, dict]:
+    """Humo de NOAA HMS de hoy y de ayer (UTC). Nunca lanza: cada fallo queda anotado y se sigue.
+
+    El archivo de hoy empieza vacío y se llena durante el día; un archivo sin polígonos es válido.
+    """
+    blobs, status = {}, {}
+    for source, days_back in SMOKE_FILES.items():
+        day = (now - timedelta(days=days_back)).date()
+        try:
+            with urllib.request.urlopen(smoke_url(day), timeout=60) as response:
+                blob = response.read()
+            records = read_zip(blob)
+        except ShapefileError as error:
+            status[source] = {"ok": False, "fecha": day.isoformat(), "error": f"archivo ilegible ({error})"}
+            print(f"{source}: archivo ilegible ({error}); se sigue sin él", file=sys.stderr)
+            continue
+        except Exception as error:
+            status[source] = {"ok": False, "fecha": day.isoformat(),
+                              "error": f"descarga fallida ({type(error).__name__})"}
+            print(f"{source}: descarga fallida ({type(error).__name__}); se sigue sin él", file=sys.stderr)
+            continue
+        status[source] = {"ok": True, "fecha": day.isoformat(), "poligonos": len(records), "bytes": len(blob)}
+        blobs[source] = blob
+    return blobs, status
+
+
 def main() -> int:
     key = os.environ.get("FIRMS_MAP_KEY", "")
     if len(key) != 32:
         print("FIRMS_MAP_KEY ausente o con longitud inesperada", file=sys.stderr)
         return 1
-    downloaded = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(timezone.utc)
+    downloaded = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     texts, info = {}, {"bbox": BBOX, "day_range": DAY_RANGE, "fuentes": {}}
     for source in SOURCES:
         try:
@@ -88,13 +121,17 @@ def main() -> int:
         texts[source] = text
     extra_texts, info["fuentes_extra"] = fetch_extra(key)
     texts.update(extra_texts)
+    smoke_blobs, smoke_status = fetch_smoke(now)
+    info["fuentes_extra"].update(smoke_status)
     info["descargado_utc"] = downloaded
     for source, text in texts.items():
         (RAW / f"{source}.csv").write_text(text, encoding="utf-8")
+    for source, blob in smoke_blobs.items():
+        (RAW / f"{source}.zip").write_bytes(blob)
     (RAW / "fetch_info.json").write_text(json.dumps(info, indent=1, ensure_ascii=False),
                                          encoding="utf-8")
     print(json.dumps({k: v["filas"] for k, v in info["fuentes"].items()}),
-          json.dumps({k: v.get("filas", v.get("error")) for k, v in info["fuentes_extra"].items()}),
+          json.dumps({k: v.get("filas", v.get("poligonos", v.get("error"))) for k, v in info["fuentes_extra"].items()}),
           downloaded)
     return fetch_tle(downloaded)
 

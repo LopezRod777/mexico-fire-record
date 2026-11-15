@@ -5,6 +5,7 @@ import { t, formatDate, formatDay, formatClock, formatLocalTime, formatUtcTime, 
 import { clusterSummary, worldviewUrl, focusView, pickBox, snapshotWindow } from './nearby.js';
 import { predictPasses, firstPass, CENTER_MX } from './passes.js';
 import { buildFireBlock } from './fire.js';
+import { validSmoke, attachSmoke } from './smoke.js';
 import { FRP_CUTS, frpClass, clusterHeight, clusterDetections, clusterAttrs, detectionTime, satellitePasses, modisProbabilities, modisExpected, modisSelection, timelineBins, timelineFraction, timelineSeek, timelineKey, replaySchedule, scheduleTime, scheduleProgress, passNow } from './replay.js';
 export { flameHeight } from './flame.js';
 
@@ -386,6 +387,9 @@ function renderLive(snapshot,names,geo,health,notice,tle) {
   const reset=node('button','live-reset',t('focus.reset'));reset.type='button';reset.hidden=true;controls.append(reset,play);
   let goesToggle=null;
   if(goes?.puntos.length){goesToggle=node('button','live-goes-toggle',t('live.goesToggle'));goesToggle.type='button';controls.append(goesToggle);}
+  const humo=validSmoke(snapshot.humo)?snapshot.humo:null;
+  // Humo de NOAA HMS: capa opcional bajo las llamas, dibujada una vez; no entra en ningún conteo.
+  const smoke=humo?attachSmoke({humo,svg,controls,capture:snapshot.generado,legendRow}):null;
   bar.append(clockText,controls);
   const slider=node('div','live-timeline');slider.tabIndex=0;slider.setAttribute('role','slider');slider.setAttribute('aria-label',t('live.timelineLabel'));slider.setAttribute('aria-valuemin','0');slider.setAttribute('aria-valuemax',String(Math.round((tl.end-tl.start)/60000)));
   const timelineBox=node('div','live-timeline-svg');slider.append(timelineBox);
@@ -397,6 +401,7 @@ function renderLive(snapshot,names,geo,health,notice,tle) {
     legendRow(t('live.legendSize'),[1,5,20].map(n=>[legendFlame(clusterHeight(n),'live-n20 flame-mid'),number(n),t(n===1?'live.sizeOne':'live.sizeMany',{n:number(n)})])),
     legendRow(t('live.legendTime'),[[legendRing(),t('live.legendFresh')],[legendFlame(18,'live-n20 flame-mid legend-seen'),t('live.legendSeen')]]));
   if(goes?.puntos.length)legend.append(legendRow(t('live.legendGoes'),[[legendSquare(),t('live.goesLegendItem',{h:number(goes.ventana_horas)})]]));
+  if(smoke)legend.append(...smoke.legend);
   const overlap=health?.mx?.overlap_probability;
   const probabilities=Array.isArray(overlap)?modisProbabilities(snapshot.detecciones,overlap):[];
   const expected=modisExpected(probabilities);
@@ -405,6 +410,7 @@ function renderLive(snapshot,names,geo,health,notice,tle) {
   const ranking=node('div','live-ranking');ranking.append(node('h3','',t('live.rankTitle')));if(!s.ranking.length)ranking.append(node('p','',t('live.noElevated')));
   else {const list=node('ol','live-rank-list');s.ranking.forEach(item=>{const row=node('li','live-rank-row');row.append(node('strong','',item.name),node('span','',rankingComparison(item)),node('span',`live-level level-${item.nivel}`,levelBadge(item.nivel)));list.append(row);});ranking.append(list);}
   const method=node('details','live-method');method.append(node('summary','',t('live.methodTitle')),node('p','',t('live.flameNote')));for(let i=1;i<=6;i++)method.append(node('p','',t(`live.method.${i}`)));if(modis)method.append(node('p','',t('live.methodModis')));if(goes)method.append(node('p','',t('live.methodGoes')));method.append(node('p','',t('live.rankNote')));
+  if(humo)method.lastChild.before(node('p','',t('live.methodSmoke')));
   const after=node('div','live-after');after.append(ranking,detectionTable,method);
   const mapBlock=node('div','live-map-block');if(notice)mapBlock.append(node('p','live-stale',notice));
   // GOES: hora real de su detección más reciente y de la captura, porque "lo más nuevo" depende de cuándo se bajó.

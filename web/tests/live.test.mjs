@@ -46,8 +46,8 @@ test('radio de puntos: mínimo efectivo de 3 px en móvil y escritorio', () => {
 });
 function checkContract(snapshot) {
   assert.ok(validLiveSnapshot(snapshot, stateIds));
-  // Campos base obligatorios; modis, goes y fuentes_extra_error son opcionales (capturas viejas no los traen).
-  const optional = ['modis','goes','fuentes_extra_error'];
+  // Campos base obligatorios; modis, goes, humo y fuentes_extra_error son opcionales (capturas viejas no los traen).
+  const optional = ['modis','goes','humo','fuentes_extra_error'];
   assert.deepEqual(Object.keys(snapshot).filter(k => !optional.includes(k)).sort(), ['generado','ultima_deteccion_utc','ventana_horas','dia_comparado','doy','fuentes','nota','descartadas_fuera_de_mexico','n_detecciones_24h','nacional','estados','detecciones'].sort());
   if (snapshot.modis != null) assert.ok(validModis(snapshot.modis, stateIds), 'modis');
   if (snapshot.goes != null) assert.ok(validGoes(snapshot.goes), 'goes');

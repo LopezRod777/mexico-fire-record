@@ -7,6 +7,7 @@ import { readJpegGps, PHOTO_MAX_BYTES, EXIF_READ_BYTES } from './exif.js';
 import { fireVerdict, comparePoints, mapUrl, nearestGoes, NEAR_KM } from './nearby.js';
 import { predictPasses } from './passes.js';
 import { ageText, validGoes } from './live.js';
+import { smokeAt } from './smoke.js';
 
 const NS = 'http:' + '//www.w3.org/2000/svg';
 const SAT_NAMES = { N20: 'NOAA-20', N21: 'NOAA-21' };
@@ -128,6 +129,9 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
       } else out.push(node('p', 'fire-verdict', t('fire.none')), node('p', '', t('fire.noneWhy')));
       const goes = validGoes(snapshot.goes) ? nearestGoes(point, snapshot.goes) : null;
       if (goes) out.push(node('p', 'fire-goes', t('fire.goesNear', { km: km(goes.km), time: goes.g.hora_utc, date: formatDay(goes.g.fecha), h: snapshot.goes.ventana_horas })));
+      // Humo de NOAA HMS sobre el punto: una frase si hay trazo; si no hay, nada (de noche y con nubes no se traza).
+      const smoke = smokeAt(point, snapshot.humo);
+      if (smoke) out.push(node('p', 'fire-smoke', t('fire.smokeOver', { from: smoke.from, to: smoke.to, date: formatDay(smoke.date) })));
       out.push(node('p', 'fire-note', t('fire.heatNote')));
     }
     // El reporte (911, CONAFOR, copiar) va justo después del veredicto y la cobertura al final.

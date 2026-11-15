@@ -12,6 +12,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from assign_regions import assign
+from smoke import read_smoke, smoke_summary
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -205,6 +206,7 @@ def build():
     features = json.loads((ROOT / "web/data/geo/mx_states.geojson").read_text())["features"]
     modis = modis_summary(read_extra(fetch, "MODIS_NRT", historical, features), states, lower, upper)
     goes = goes_summary(read_extra(fetch, "GOES_NRT", historical, features), states, upper)
+    smoke = smoke_summary(*read_smoke(fetch, RAW), features, downloaded - timedelta(hours=24), downloaded)
     extra_errors = {source: status.get("error", "sin estado")
                     for source, status in fetch.get("fuentes_extra", {"MODIS_NRT": {}, "GOES_NRT": {}}).items()
                     if not status.get("ok")}
@@ -223,13 +225,16 @@ def build():
         "detecciones": recent_rows,
         "modis": modis,
         "goes": goes,
+        "humo": smoke,
         "fuentes_extra_error": extra_errors,
     }
     DEST.write_text(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
     print(f"{DEST.relative_to(ROOT)}: {DEST.stat().st_size} bytes; "
           f"{len(recent_rows)} detecciones 24 h; {out_count} OUT; "
           f"MODIS 24 h={modis and modis['n_24h']}; GOES 3 h filas={goes and goes['filas_ventana']}, "
-          f"puntos={goes and len(goes['puntos'])}, última={goes and goes['ultima_utc']}; errores={extra_errors}")
+          f"puntos={goes and len(goes['puntos'])}, última={goes and goes['ultima_utc']}; "
+          f"humo HMS={smoke and smoke['n']} de {smoke and smoke['poligonos_en_ventana']} en ventana; "
+          f"errores={extra_errors}")
     return snapshot
 
 

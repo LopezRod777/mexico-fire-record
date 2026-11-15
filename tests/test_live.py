@@ -274,6 +274,108 @@ def extra_failure_isolated():
     return "una fuente extra caída no lanza error, queda anotada y el pipeline no lee su CSV viejo"
 
 
+def smoke_real(snapshot):
+    """Humo de HMS: recuento aparte desde los zip crudos, sin usar pipeline/smoke.py."""
+    import struct
+    import zipfile
+    sources = {"HMS_SMOKE_AYER": 1, "HMS_SMOKE_HOY": 0}
+    read = [s for s in sources if extra_ok(s)]
+    smoke = snapshot["humo"]
+    if not read:
+        assert smoke is None and all(s in snapshot["fuentes_extra_error"] for s in sources)
+        return "el humo no se descargó en esta captura: campo nulo y errores anotados"
+    for source in sources:
+        assert info["fuentes_extra"][source]["fecha"] == (download.date() - timedelta(days=sources[source])).isoformat()
+    raw = []
+    for source in read:
+        with zipfile.ZipFile(ROOT / "data/live/raw" / f"{source}.zip") as archive:
+            name = next(n for n in archive.namelist() if n.endswith(".shp"))
+            shp, dbf = archive.read(name), archive.read(name[:-4] + ".dbf")
+        n_rows, header_len, record_len = struct.unpack("<IHH", dbf[4:12])
+        assert n_rows == info["fuentes_extra"][source]["poligonos"], source
+        offset = 100
+        for i in range(n_rows):
+            row = dbf[header_len + i * record_len:header_len + (i + 1) * record_len].decode("latin-1")
+            sat, begin, end, density = row[1:21].strip(), row[21:33], row[33:45], row[45:52].strip()
+            when = [datetime.strptime(v.replace(" ", ""), "%Y%j%H%M").replace(tzinfo=timezone.utc) for v in (begin, end)]
+            words, = struct.unpack(">i", shp[offset + 4:offset + 8])
+            n_parts, n_points = struct.unpack("<2i", shp[offset + 44:offset + 52])
+            flat = struct.unpack(f"<{2 * n_points}d", shp[offset + 52 + 4 * n_parts:offset + 52 + 4 * n_parts + 16 * n_points])
+            raw.append((when[0], when[1], density, sat, list(zip(flat[0::2], flat[1::2]))))
+            offset += 8 + words * 2
+        assert offset == len(shp), source
+    in_window = [r for r in raw if r[1] > start and r[0] <= download]
+    assert smoke["fuente"] == "NOAA_HMS_SMOKE" and smoke["ventana_horas"] == 24
+    assert smoke["dias"] == sorted(info["fuentes_extra"][s]["fecha"] for s in read)
+    assert smoke["poligonos_en_ventana"] == len(in_window), (smoke["poligonos_en_ventana"], len(in_window))
+    assert smoke["n"] == len(smoke["poligonos"]) <= len(in_window)
+    assert sum(smoke["por_densidad"].values()) == smoke["n"]
+    assert smoke["ultima_utc"] == max((p["fin"] for p in smoke["poligonos"]), default=None)
+    # Los que tienen al menos un vértice crudo dentro de un estado deben estar todos en la captura.
+    vertex_inside = 0
+    for begin, end, density, sat, points in in_window:
+        lon, lat = np.array([p[0] for p in points]), np.array([p[1] for p in points])
+        if (assign(lat, lon, features) != "OUT").any():
+            vertex_inside += 1
+            stamp = (begin.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ"), density, sat)
+            near = {(round(x, 3), round(y, 3)) for x, y in points}
+            assert any((p["inicio"], p["fin"], p["densidad"], p["sat"]) == stamp
+                       and {tuple(c) for c in p["anillos"][0]} <= near for p in smoke["poligonos"]), stamp
+    assert vertex_inside <= smoke["n"]
+    for polygon in smoke["poligonos"]:
+        begin, end = (datetime.fromisoformat(polygon[k].replace("Z", "+00:00")) for k in ("inicio", "fin"))
+        assert begin < end and end > start and begin <= download, polygon["inicio"]
+        assert polygon["densidad"] in ("Light", "Medium", "Heavy") and polygon["anillos"]
+        for ring in polygon["anillos"]:
+            assert len(ring) >= 4 and ring[0] == ring[-1], polygon["inicio"]
+            assert all(round(x, 3) == x and round(y, 3) == y and -180 <= x <= 180 and -90 <= y <= 90 for x, y in ring)
+        # Procedencia: cada polígono de la captura sale de un registro crudo con los mismos atributos.
+        stamp = (begin, end, polygon["densidad"], polygon["sat"])
+        assert any(r[:4] == stamp and {tuple(c) for c in polygon["anillos"][0]} <= {(round(x, 3), round(y, 3)) for x, y in r[4]}
+                   for r in in_window), polygon["inicio"]
+    size = len(json.dumps(smoke, ensure_ascii=False, separators=(",", ":")).encode())
+    assert size < 60000, size
+    per_day = ", ".join("{fecha}: {poligonos}".format(**info["fuentes_extra"][s]) for s in read)
+    return (f"humo HMS: {len(raw)} polígonos crudos ({per_day}), "
+            f"{len(in_window)} en la ventana, {smoke['n']} tocan México ({vertex_inside} con vértice dentro de un estado, "
+            f"{smoke['n'] - vertex_inside} solo por borde o por cubrirlo); {smoke['por_densidad']}; {size} bytes en la captura")
+
+
+def smoke_failure_isolated():
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import fetch_live
+    from smoke import read_smoke, smoke_summary
+    original = fetch_live.urllib.request.urlopen
+
+    def broken(*args, **kwargs):
+        raise OSError("sin red")
+
+    class Garbage:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b"esto no es un zip"
+    results = []
+    for fake in (broken, lambda *args, **kwargs: Garbage()):
+        fetch_live.urllib.request.urlopen = fake
+        try:
+            blobs, status = fetch_live.fetch_smoke(download)
+        finally:
+            fetch_live.urllib.request.urlopen = original
+        assert blobs == {} and set(status) == {"HMS_SMOKE_AYER", "HMS_SMOKE_HOY"}
+        assert all(not v["ok"] and v["error"] and v["fecha"] for v in status.values()), status
+        records, days = read_smoke({"fuentes_extra": status}, ROOT / "data/live/raw")
+        assert records is None and days == []
+        assert smoke_summary(records, days, features, start, download) is None
+        results.append(status["HMS_SMOKE_HOY"]["error"].split(" (")[0])
+    assert read_smoke({}, ROOT / "data/live/raw") == (None, [])
+    return f"sin red y con un archivo que no es zip ({'; '.join(results)}): no lanza, queda anotado y no se lee el zip viejo"
+
+
 check("determinismo", determinism)
 snapshot = load_snapshot() if snapshot_path.exists() else {}
 frame = raw_frame()
@@ -285,5 +387,7 @@ check("JSON y tamaño", lambda: valid_json_and_size(snapshot))
 check("MODIS real contra CSV", lambda: modis_real(snapshot))
 check("GOES 3 h contra CSV", lambda: goes_latest(snapshot))
 check("falla aislada de fuentes extra", extra_failure_isolated)
+check("humo HMS contra los zip crudos", lambda: smoke_real(snapshot))
+check("falla aislada del humo", smoke_failure_isolated)
 print(f"RESULTADO: {failures} fallo(s)")
 sys.exit(1 if failures else 0)
