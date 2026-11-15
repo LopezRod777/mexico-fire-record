@@ -22,11 +22,6 @@ function startCount(root){
   function frame(now){const p=Math.min(1,(now-start)/900);el.textContent=formatter.format(countAt(target,p));if(p<1)requestAnimationFrame(frame);}
   requestAnimationFrame(frame);
 }
-function startFlames(root){
-  const flames=[...root.querySelectorAll('.live-map-frame use[data-frp]')];
-  if(reduced())return;
-  flameStagger(flames.map(el=>({frp:Number(el.dataset.frp)}))).forEach(({index,delay})=>flames[index].animate([{opacity:0},{opacity:.85}],{duration:240,delay,easing:'cubic-bezier(.22,1,.36,1)'}));
-}
 function startCalendar(root){
   if(reduced())return;
   root.querySelectorAll('rect.cell').forEach((cell,i)=>{const row=Math.floor(i/12),col=i%12;cell.animate([{opacity:0,transform:'scale(.9)'},{opacity:1,transform:'scale(1)'}],{duration:320,delay:Math.round((row+col)/36*560),easing:'cubic-bezier(.22,1,.36,1)'});});
@@ -43,7 +38,7 @@ export function animateCalendarChange(){
   const svg=document.getElementById('calendar-svg');if(svg&&!reduced())svg.animate([{opacity:.2},{opacity:1}],{duration:280,easing:'cubic-bezier(.22,1,.36,1)'});
 }
 export function animateErrorChange(){if(languageRepaint)return;const root=document.getElementById('confidence-content');if(root)startError(root);}
-export function animateLive(){if(languageRepaint)return;const root=document.getElementById('hoy');if(!root)return;startCount(root);startFlames(root);}
+export function animateLive(){if(languageRepaint)return;const root=document.getElementById('hoy');if(!root)return;startCount(root);}
 export function setupMotion(){
   const photo=document.querySelector('.photo-viewport'),image=photo?.querySelector('img');
   if(photo&&image&&!reduced()){photo.animate([{clipPath:'inset(0 0 0 100%)'},{clipPath:'inset(0)'}],{duration:1100,easing:'cubic-bezier(.22,1,.36,1)'});image.animate([{transform:'scale(1.12)'},{transform:'scale(1)'}],{duration:1100,easing:'cubic-bezier(.22,1,.36,1)'});}

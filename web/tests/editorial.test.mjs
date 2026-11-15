@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { countAt, flameStagger } from '../js/motion.js';
-import { daysOf2005, monthStory, legendSteps, harmonizedMethod } from '../js/editorial.js';
+import { daysOf2005, monthStory, daysFigure, legendSteps, harmonizedMethod } from '../js/editorial.js';
 import { PALETTE, contrast } from '../js/colors.js';
 import { setLanguage, t } from '../js/i18n.js';
 
@@ -24,10 +24,12 @@ test('dos días: compara marzo y mayo y halla el mayor mes del fixture',()=>{
   assert.deepEqual(daysOf2005(fixture),{march:10,may:20,highest:{month:'2005-04',value:30}});
   assert.match(monthStory(fixture),/Abril fue el mes con mayor valor de 2005: 30/);
 });
-test('dos días: si mayo es el máximo, su conteo aparece una sola vez',()=>{
+test('dos días: la cifra de mayo va junto a la foto y no se repite en el texto',()=>{
   const fixture={months:['2005-03','2005-05'],regions:{MX:{valor:[18805.4,58832.8]}}};
   const story=monthStory(fixture);
-  assert.equal((story.match(/58,833/g)??[]).length,1);
+  assert.equal(daysFigure(fixture),'58,833');
+  assert.equal((story.match(/58,833/g)??[]).length,0);
+  assert.match(story,/18,805/);
   assert.doesNotMatch(story,/\.\d celdas-día/);
 });
 test('leyenda: siete pasos discretos sin interpolación de color',()=>{
