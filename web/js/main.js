@@ -6,6 +6,8 @@ import { renderConfidence } from './confidence.js';
 import { loadLive } from './live.js';
 import { setupHeroMarks } from './hero.js';
 import { downloadCsv } from './csv.js';
+import { renderCite, copyCite } from './cite.js';
+import { renderSeason } from './season.js';
 import { monthStory, daysFigure, harmonizedMethod } from './editorial.js';
 import { setupMotion, animateCalendarChange, animateErrorChange, setLanguageRepaint } from './motion.js';
 import { t, chooseLanguage, setLanguage, getLanguage, regionName } from './i18n.js';
@@ -31,11 +33,13 @@ async function main(){
   const data=await loadAll(),series=data['series_monthly.json'],harmonized=data['harmonized.json'],cells=data['cells_yearly.json'],geo=data['geo/mx_states.geojson'],health=data['health.json'];
   function paintEditorial(){document.getElementById('days-summary').textContent=monthStory(harmonized);document.getElementById('days-figure').textContent=daysFigure(harmonized);const method=harmonizedMethod(harmonized);if(method)document.getElementById('method-harmonized').textContent=method;}
   paintEditorial();
-  const state={region:'MX',sensor:'Aqua',year:2024,view:'harmonized',metric:'count'};
+  const state={region:'MX',sensor:'Aqua',year:2024,view:'harmonized',metric:'count',month:null};
+  const paintCite=()=>renderCite(state.region,state.month??harmonized.months.at(-1),harmonized,series.region_names);
+  const paintCalendar=()=>renderCalendar(calendarModel(state.region,state.view,state.metric,series,harmonized),state.metric,month=>{state.month=month;paintCite();},state.month);
   const select=document.getElementById('region-select');
   Object.entries(series.region_names).filter(([id])=>id!=='MX').map(([id])=>[id,regionName(id,series.region_names)]).sort((a,b)=>a[1].localeCompare(b[1],'es-MX')).forEach(([id,name])=>{const option=document.createElement('option');option.value=id;option.textContent=name;select.append(option);});
   function paintRegions(){select.querySelectorAll('option').forEach(option=>{option.textContent=regionName(option.value,series.region_names);});}
-  function drawRegion(){document.getElementById('calendar-region').textContent=regionName(state.region,series.region_names);renderMap(cells,geo,state.region,state.sensor,state.year,id=>{state.region=id;select.value=id;drawRegion();},series.region_names);renderCalendar(calendarModel(state.region,state.view,state.metric,series,harmonized),state.metric);renderConfidence(state.region,harmonized,series.region_names);animateCalendarChange();animateErrorChange();}
+  function drawRegion(){document.getElementById('calendar-region').textContent=regionName(state.region,series.region_names);renderMap(cells,geo,state.region,state.sensor,state.year,id=>{state.region=id;select.value=id;drawRegion();},series.region_names);paintCalendar();paintCite();renderSeason(state.region,series,harmonized,series.region_names);renderConfidence(state.region,harmonized,series.region_names);animateCalendarChange();animateErrorChange();}
   paintRegions();
   select.addEventListener('change',()=>{state.region=select.value;drawRegion();});
   document.querySelectorAll('[name="map-sensor"]').forEach(input=>input.addEventListener('change',()=>{if(input.checked){state.sensor=input.value;drawRegion();}}));
@@ -43,10 +47,11 @@ async function main(){
   document.getElementById('calendar-view').addEventListener('change',e=>{state.view=e.target.value;drawRegion();});
   document.getElementById('calendar-metric').addEventListener('change',e=>{state.metric=e.target.value;drawRegion();});
   document.getElementById('table-toggle').addEventListener('click',e=>{const graphic=document.getElementById('calendar-graphic'),table=document.getElementById('calendar-table-wrap'),show=table.hidden;table.hidden=!show;graphic.hidden=show;e.target.textContent=show?t('main.calendar'):t('main.table');e.target.setAttribute('aria-expanded',show);});
+  document.getElementById('cite-copy').addEventListener('click',copyCite);
   document.querySelectorAll('[data-download]').forEach(button=>button.addEventListener('click',()=>downloadCsv(state.region,series,harmonized)));
   for(const id of ['lst-place','ratio-place','ratio-day','version-place','overlap-day'])document.getElementById(id).addEventListener('change',()=>renderHealth(health));
   let resizeTimer;
-  window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{renderCalendar(calendarModel(state.region,state.view,state.metric,series,harmonized),state.metric);renderHealth(health);},120);});
+  window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{paintCalendar();renderSeason(state.region,series,harmonized,series.region_names);renderHealth(health);},120);});
   drawRegion();renderHealth(health);setupMotion();await loadLive(series.region_names,geo,health);
   document.querySelectorAll('.language-switch button[data-lang]').forEach(button=>button.addEventListener('click',async()=>{
     const next=button.dataset.lang;if(next===getLanguage())return;

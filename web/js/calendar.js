@@ -45,7 +45,7 @@ export function legendMark(value, metric, overflow = false) {
   const label = number(metric === 'count' ? Math.round(value) : value);
   return `${label}${metric === 'anomaly' ? ' %' : ''}${overflow ? t('calendar.orMore') : ''}`;
 }
-export function renderCalendar(model, metric) {
+export function renderCalendar(model, metric, onSelect, selected) {
   const svg = document.getElementById('calendar-svg'), tableWrap = document.getElementById('calendar-table-wrap');
   svg.replaceChildren();
   const title = svgEl('title', { id: 'calendar-svg-title' }); title.textContent = t('calendar.svgTitle'); svg.append(title);
@@ -62,7 +62,7 @@ export function renderCalendar(model, metric) {
   const width = Math.max(300, Math.floor(svg.parentElement.clientWidth || 390)), left = 38, gap = 2, cellW = (width - left - 2) / 12 - gap;
   svg.setAttribute('viewBox', `0 0 ${width} 632`);
   const detail = document.getElementById('calendar-detail');
-  function select(cell) { detail.textContent = describeCell(cell, metric); }
+  function select(cell, rect) { detail.textContent = describeCell(cell, metric); svg.querySelector('.cell.is-selected')?.classList.remove('is-selected'); rect?.classList.add('is-selected'); onSelect?.(cell.month); }
   [...Array(12)].forEach((_, m) => { const label=new Intl.DateTimeFormat(getLanguage()==='en'?'en-US':'es-MX',{month:'narrow',timeZone:'UTC'}).format(new Date(Date.UTC(2000,m,1))); const text = svgEl('text', { x: left + m * (cellW + gap) + cellW / 2, y: 20, 'text-anchor': 'middle' }); text.textContent = label; svg.append(text); });
   model.forEach((row, y) => {
     const yr = svgEl('text', { x: 0, y: 42 + y * 23, class: 'year' }); yr.textContent = 2000 + y; svg.append(yr);
@@ -70,7 +70,8 @@ export function renderCalendar(model, metric) {
       const x = left + m * (cellW + gap), yy = 27 + y * 23;
       const fill = cell.display == null ? '#4A3B33' : colorFor(scaleValue(cell.display, max, metric));
       const rect = svgEl('rect', { x, y: yy, width: cellW, height: 20, rx: 2, fill, stroke:cell.display != null && scaleValue(cell.display,max,metric)<.34 ? '#D4571A' : '#4A3B33', class: 'cell', tabindex: 0, role: 'button', 'aria-label': describeCell(cell, metric) });
-      rect.addEventListener('click', () => select(cell)); rect.addEventListener('focus', () => select(cell)); rect.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(cell); } }); svg.append(rect);
+      rect.addEventListener('click', () => select(cell, rect)); rect.addEventListener('focus', () => select(cell, rect)); rect.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(cell, rect); } }); svg.append(rect);
+      if (cell.month === selected) { rect.classList.add('is-selected'); detail.textContent = describeCell(cell, metric); }
       if (cell.display == null) { const t = svgEl('text', { x: x + cellW / 2, y: yy + 14, 'text-anchor': 'middle', 'aria-hidden': 'true' }); t.textContent = '×'; svg.append(t); }
       if (cell.estimated || cell.drift) svg.append(svgEl('rect', { x, y: yy, width: cellW, height: 20, fill: `url(#${cell.estimated ? 'dots' : 'stripes'})`, 'pointer-events': 'none', 'aria-hidden': 'true' }));
     });

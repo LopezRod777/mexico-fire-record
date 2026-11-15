@@ -159,3 +159,23 @@ details:not([open]) > :not(summary){display:none}
 .fire-smoke{margin:8px 0 0}
 /* En móvil, con tres botones: reproducir arriba y las dos capas en un segundo renglón. */
 @media(max-width:600px){.live-controls:has(.live-smoke-toggle)::before{content:"";order:1;flex-basis:100%;height:0;margin-top:-8px}.live-controls:has(.live-smoke-toggle) .live-goes-toggle,.live-controls .live-smoke-toggle{order:2}}
+/* Resumen citable y "¿Se movió la temporada?" (Calendario). */
+.calendar-extras{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 clamp(32px,5vw,96px);align-items:start;margin-top:56px}
+.cite,.season{max-width:68ch;min-width:0}
+.cite h3,.season h3{max-width:none;margin:0 0 12px}
+.cite-hint,.season-legend{color:var(--muted);font-size:14px;margin:0 0 16px}
+.cite-text{margin:0 0 16px;padding:16px 18px;border-left:3px solid var(--fire-4);background:var(--surface);user-select:text;-webkit-user-select:text;overflow-wrap:anywhere}
+.cite-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
+.cite-actions button:disabled{opacity:.45;cursor:not-allowed}
+.cite-status{font-weight:600;color:var(--fire-5)}
+.cell.is-selected{stroke:var(--text);stroke-width:2}
+.season-chart{display:block;margin:16px 0 8px;max-width:100%;overflow:visible}
+.season-chart text{font:400 13px Plex Sans,Arial,sans-serif;fill:var(--text);font-variant-numeric:tabular-nums}
+.season-chart .season-tick{font-size:12px;fill:var(--muted)}
+.season-grid{stroke:var(--line);stroke-width:1}
+.season-a{fill:var(--fire-3)}
+.season-b{fill:var(--fire-5)}
+.season-median{stroke:var(--text);stroke-width:3}
+.season .limit{font-size:16px;margin:0}
+@media(max-width:900px){.calendar-extras{display:block}.season{margin-top:56px}}
+@media(max-width:600px){.cite-actions button{width:100%}}
