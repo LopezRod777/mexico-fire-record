@@ -46,33 +46,48 @@ export function compass(from, to) {
 // Radio (km) dentro del cual se nombra una localidad: el mismo de la búsqueda de detecciones.
 export const PLACE_KM = NEAR_KM;
 
-// Localidad más cercana entre todos los estados: { name, stateId, km, dir }, o null si el archivo
-// no cargó o no tiene la forma esperada. Cada fila es [nombre, lat, lon] en milésimas de grado, y es el
-// punto de referencia de la localidad en GeoNames, no sus límites. `dir` es hacia dónde queda el punto
-// visto desde la localidad.
+// Prepara data/localidades_mx.json para buscar: nombres, lat y lon paralelos (milésimas de grado, lat
+// en diferencias) ordenados por estado, con `cuenta` localidades por cada clave de `estados`.
+// Devuelve null si el archivo no tiene esa forma.
+export function decodePlaces(raw) {
+  const { estados, cuenta, nombres, lat, lon } = raw ?? {};
+  if (![estados, cuenta, nombres, lat, lon].every(Array.isArray) || estados.length !== cuenta.length || nombres.length !== lat.length || lat.length !== lon.length) return null;
+  const lats = new Int32Array(lat.length), starts = [];
+  let sum = 0, at = 0;
+  for (let i = 0; i < lat.length; i++) { sum += lat[i]; lats[i] = sum; }
+  for (const count of cuenta) { starts.push(at); at += count; }
+  if (at !== nombres.length) return null;
+  return { names: nombres, lat: lats, lon: Int32Array.from(lon), states: estados, starts };
+}
+
+// Localidad listada más cercana a PLACE_KM o menos: { name, stateId, km, dir }, o null si no hay
+// ninguna tan cerca o no hay localidades. Cada una es el punto de referencia de la localidad en
+// GeoNames, no sus límites. `dir` es hacia dónde queda el punto visto desde la localidad. Recorre
+// todas, pero solo mide la distancia de las que caen en el recuadro de PLACE_KM alrededor del punto.
 export function nearestPlace(point, places) {
-  const states = places?.estados;
-  if (!states || typeof states !== 'object') return null;
-  let best = null;
-  for (const [stateId, list] of Object.entries(states)) {
-    if (!Array.isArray(list)) continue;
-    for (const row of list) {
-      if (!Array.isArray(row) || typeof row[0] !== 'string' || !Number.isFinite(row[1]) || !Number.isFinite(row[2])) continue;
-      const lat = row[1] / 1000, lon = row[2] / 1000, km = haversineKm(point.lat, point.lon, lat, lon);
-      if (!best || km < best.km) best = { name: row[0], stateId, lat, lon, km };
-    }
+  if (!places) return null;
+  const { lat, lon } = places, pLat = point.lat * 1000, pLon = point.lon * 1000;
+  const dLat = PLACE_KM / 111.195 * 1000 + 1, dLon = dLat / Math.cos(point.lat * Math.PI / 180) + 1;
+  let best = -1, bestKm = Infinity;
+  for (let i = 0; i < lat.length; i++) {
+    if (Math.abs(lat[i] - pLat) > dLat || Math.abs(lon[i] - pLon) > dLon) continue;
+    const km = haversineKm(point.lat, point.lon, lat[i] / 1000, lon[i] / 1000);
+    if (km < bestKm) { bestKm = km; best = i; }
   }
-  return best && { name: best.name, stateId: best.stateId, km: best.km, dir: compass(best, point) };
+  if (best < 0 || bestKm > PLACE_KM) return null;
+  let s = places.starts.length - 1;
+  while (places.starts[s] > best) s--;
+  return { name: places.names[best], stateId: places.states[s], km: bestKm, dir: compass({ lat: lat[best] / 1000, lon: lon[best] / 1000 }, point) };
 }
 
 // Qué decir del punto: { kind: 'in' | 'near', place, km, dir } con la localidad listada más cercana si
 // queda a PLACE_KM o menos, y el estado de ESA localidad ('in' solo a menos de 200 m de su punto de
 // referencia). Si no hay ninguna tan cerca no se nombra una más lejana: { kind: 'far' } con el estado
-// del punto, o { kind: 'state' } si el archivo de localidades no cargó. Null si tampoco hay estado.
+// del punto, o { kind: 'state' } si las localidades no han cargado. Null si tampoco hay estado.
 export function describePoint(point, geo, places) {
   const near = nearestPlace(point, places);
-  const state = near && near.km <= PLACE_KM ? geo.features.find(f => f.properties.id === near.stateId)?.properties : null;
+  const state = near ? geo.features.find(f => f.properties.id === near.stateId)?.properties : null;
   if (state) return { kind: near.km < 0.2 ? 'in' : 'near', place: near.name, stateId: state.id, stateName: state.name, km: near.km, dir: near.dir };
   const own = stateAt(point, geo);
-  return own ? { kind: near ? 'far' : 'state', stateId: own.id, stateName: own.name } : null;
+  return own ? { kind: places ? 'far' : 'state', stateId: own.id, stateName: own.name } : null;
 }

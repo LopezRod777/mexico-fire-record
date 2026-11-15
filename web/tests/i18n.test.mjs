@@ -51,6 +51,8 @@ test('números, fechas UTC y nombres seguros', () => {
   assert.equal(formatNumber(18805.4, 0), '18,805');
   assert.equal(formatDate('2026-11-14T22:50:00Z'), '14 nov 2026, 22:50 UTC');
   assert.equal(regionName('MX-MEX', { 'MX-MEX': 'México' }), 'México');
+  assert.equal(regionName('MX-DIF', { 'MX-DIF': 'Distrito Federal' }), 'Ciudad de México');
+  assert.equal(regionName('MX-PUE', { 'MX-PUE': 'Puebla' }), 'Puebla');
   setLanguage('en');
   assert.equal(formatNumber(18805.4, 0), '18,805');
   assert.equal(formatDate('2026-11-14T22:50:00Z'), 'Nov 14, 2026, 22:50 UTC');

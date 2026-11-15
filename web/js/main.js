@@ -33,7 +33,7 @@ async function main(){
   paintEditorial();
   const state={region:'MX',sensor:'Aqua',year:2024,view:'harmonized',metric:'count'};
   const select=document.getElementById('region-select');
-  Object.entries(series.region_names).filter(([id])=>id!=='MX').sort((a,b)=>a[1].localeCompare(b[1],'es-MX')).forEach(([id,name])=>{const option=document.createElement('option');option.value=id;option.textContent=name;select.append(option);});
+  Object.entries(series.region_names).filter(([id])=>id!=='MX').map(([id])=>[id,regionName(id,series.region_names)]).sort((a,b)=>a[1].localeCompare(b[1],'es-MX')).forEach(([id,name])=>{const option=document.createElement('option');option.value=id;option.textContent=name;select.append(option);});
   function paintRegions(){select.querySelectorAll('option').forEach(option=>{option.textContent=regionName(option.value,series.region_names);});}
   function drawRegion(){document.getElementById('calendar-region').textContent=regionName(state.region,series.region_names);renderMap(cells,geo,state.region,state.sensor,state.year,id=>{state.region=id;select.value=id;drawRegion();},series.region_names);renderCalendar(calendarModel(state.region,state.view,state.metric,series,harmonized),state.metric);renderConfidence(state.region,harmonized,series.region_names);animateCalendarChange();animateErrorChange();}
   paintRegions();

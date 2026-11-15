@@ -4,13 +4,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { setLanguage, dictionaries } from '../js/i18n.js';
-import { stateAt, compass, nearestPlace, describePoint, kmToMexico, coversPoint, PLACE_KM, COVER_KM } from '../js/place.js';
+import { stateAt, compass, nearestPlace, describePoint, decodePlaces, kmToMexico, coversPoint, PLACE_KM, COVER_KM } from '../js/place.js';
 import { smokeAt } from '../js/smoke.js';
 import { haversineKm } from '../js/nearby.js';
 
 const read = path => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const geo = read('../data/geo/mx_states.geojson'), snapshot = read('./fixtures/live_snapshot.sample.json');
-const localidades = read('../data/localidades_mx.json');
+const localidades = read('../data/localidades_mx.json'), real = decodePlaces(localidades);
+// Localidades de prueba en el formato del archivo: { estado: [[nombre, lat, lon en milésimas]] }.
+function places(byState) {
+  const rows = Object.entries(byState).flatMap(([id, list]) => list.map(r => [id, ...r]));
+  return decodePlaces({ estados: Object.keys(byState), cuenta: Object.values(byState).map(l => l.length), nombres: rows.map(r => r[1]), lat: rows.map((r, i) => r[2] - (i ? rows[i - 1][2] : 0)), lon: rows.map(r => r[3]) });
+}
 const GDL = { lat: 20.6767, lon: -103.3475 };
 const north = (p, km) => ({ lat: p.lat + km / 111.195, lon: p.lon });
 
@@ -59,24 +64,27 @@ test('lugar: rumbo en ocho direcciones y distancia con casos conocidos', () => {
   const o = { lat: 20, lon: -100 }, d = 0.1;
   const cases = { N: [d, 0], NE: [d, d], E: [0, d], SE: [-d, d], S: [-d, 0], SW: [-d, -d], W: [0, -d], NW: [d, -d] };
   for (const [dir, [dLat, dLon]] of Object.entries(cases)) assert.equal(compass(o, { lat: o.lat + dLat, lon: o.lon + dLon }), dir);
-  const places = { estados: { 'MX-JAL': [['Pueblo', 20677, -103347]], 'MX-NAY': [['Lejos', 21500, -104900]], malo: 'x' } };
-  const near = nearestPlace(north({ lat: 20.677, lon: -103.347 }, 3), places);
+  const list = places({ 'MX-AGU': [], 'MX-JAL': [['Otro', 20700, -103500], ['Pueblo', 20677, -103347]], 'MX-NAY': [['Lejos', 21500, -104900]] });
+  const near = nearestPlace(north({ lat: 20.677, lon: -103.347 }, 3), list);
   assert.equal(near.name, 'Pueblo'); assert.equal(near.stateId, 'MX-JAL'); assert.equal(near.dir, 'N');
   assert.ok(Math.abs(near.km - 3) < 0.01, String(near.km));
   assert.equal(nearestPlace(GDL, null), null);
-  assert.equal(nearestPlace(GDL, { estados: {} }), null);
+  assert.equal(nearestPlace({ lat: 21.5, lon: -104.9 }, list).stateId, 'MX-NAY');
+  assert.equal(nearestPlace(north({ lat: 20.677, lon: -103.347 }, 5.2), places({ 'MX-JAL': [['Pueblo', 20677, -103347]] })), null, 'a más de 5 km no se nombra');
+  // Archivo con otra forma (por ejemplo el formato anterior, o cuentas que no cuadran): se ignora.
+  for (const bad of [null, {}, { estados: { 'MX-JAL': [['Pueblo', 20677, -103347]] } }, { estados: ['MX-JAL'], cuenta: [2], nombres: ['A'], lat: [20000], lon: [-103000] }, { estados: ['MX-JAL'], cuenta: [1], nombres: ['A'], lat: [20000], lon: [] }]) assert.equal(decodePlaces(bad), null);
 });
 test('lugar: fuera de México no dice nada, y sin archivo o sin localidad a 5 km solo el estado', () => {
   assert.equal(stateAt(GDL, geo).id, 'MX-JAL');
-  for (const p of [{ lat: 31.0, lon: -100.0 }, { lat: 14.6, lon: -90.5 }, { lat: 22.0, lon: -95.0 }]) { assert.equal(stateAt(p, geo), null); assert.equal(describePoint(p, geo, localidades), null); }
+  for (const p of [{ lat: 31.0, lon: -100.0 }, { lat: 14.6, lon: -90.5 }, { lat: 22.0, lon: -95.0 }]) { assert.equal(stateAt(p, geo), null); assert.equal(describePoint(p, geo, real), null); }
   assert.deepEqual(describePoint(GDL, geo, null), { kind: 'state', stateId: 'MX-JAL', stateName: 'Jalisco' });
-  const places = { estados: { 'MX-JAL': [['Pueblo', 20677, -103347]] } }, base = { lat: 20.677, lon: -103.347 };
+  const one = places({ 'MX-JAL': [['Pueblo', 20677, -103347]] }), base = { lat: 20.677, lon: -103.347 };
   assert.equal(PLACE_KM, 5);
-  assert.equal(describePoint(north(base, 0.15), geo, places).kind, 'in');
-  assert.equal(describePoint(north(base, 0.4), geo, places).kind, 'near');
-  assert.equal(describePoint(north(base, 4.9), geo, places).kind, 'near');
+  assert.equal(describePoint(north(base, 0.15), geo, one).kind, 'in');
+  assert.equal(describePoint(north(base, 0.4), geo, one).kind, 'near');
+  assert.equal(describePoint(north(base, 4.9), geo, one).kind, 'near');
   // A 10 km no se nombra la localidad: solo el estado del punto.
-  assert.deepEqual(describePoint(north(base, 10), geo, places), { kind: 'far', stateId: 'MX-JAL', stateName: 'Jalisco' });
+  assert.deepEqual(describePoint(north(base, 10), geo, one), { kind: 'far', stateId: 'MX-JAL', stateName: 'Jalisco' });
 });
 test('lugar: la frase da metros bajo 1 km, un decimal hasta 5 km y nunca inventa', () => {
   const d = (kind, km, dir = 'NW') => ({ kind, place: 'Tequila', stateId: 'MX-JAL', stateName: 'Jalisco', km, dir });
@@ -98,19 +106,27 @@ test('lugar: la frase da metros bajo 1 km, un decimal hasta 5 km y nunca inventa
 });
 test('localidades: archivo de GeoNames con la forma esperada, peso acotado y casos reales', () => {
   const ids = geo.features.map(f => f.properties.id).sort();
-  assert.deepEqual(Object.keys(localidades.estados).sort(), ids);
-  let n = 0;
-  for (const list of Object.values(localidades.estados)) for (const row of list) { n++; assert.ok(typeof row[0] === 'string' && row[0] && Number.isInteger(row[1]) && Number.isInteger(row[2]) && row[1] > 14000 && row[1] < 33000 && row[2] > -119000 && row[2] < -86000, JSON.stringify(row)); }
-  assert.equal(n, localidades.n);
+  assert.deepEqual(localidades.estados, ids);
+  const n = localidades.n;
+  assert.ok(n > 250000, String(n));
+  for (const key of ['nombres', 'lat', 'lon']) assert.equal(localidades[key].length, n, key);
+  assert.equal(localidades.cuenta.reduce((a, b) => a + b, 0), n);
+  assert.ok(localidades.nombres.every(x => typeof x === 'string' && x.length > 2) && localidades.lat.every(Number.isInteger) && localidades.lon.every(Number.isInteger));
+  assert.ok(real.lat.every(v => v > 14000 && v < 33000) && real.lon.every(v => v > -119000 && v < -86000));
+  // Sin nombres que no identifican un lugar por sí solos.
+  assert.ok(!localidades.nombres.some(x => /^(sin nombre|centro$|kil[oó]metro\b)/i.test(x)));
   assert.equal(localidades.licencia, 'CC BY 4.0');
-  assert.ok(statSync(new URL('../data/localidades_mx.json', import.meta.url)).size <= 1.6 * 1024 * 1024);
-  const gdl = describePoint(GDL, geo, localidades);
+  assert.ok(statSync(new URL('../data/localidades_mx.json', import.meta.url)).size <= 8.5 * 1024 * 1024);
+  const gdl = describePoint(GDL, geo, real);
   assert.equal(gdl.place, 'Guadalajara'); assert.equal(gdl.stateId, 'MX-JAL'); assert.ok(gdl.km < 0.2 && gdl.kind === 'in', JSON.stringify(gdl));
-  const tequila = localidades.estados['MX-JAL'].find(r => r[0] === 'Tequila'), p = north({ lat: tequila[1] / 1000, lon: tequila[2] / 1000 }, 10);
-  assert.ok(haversineKm(p.lat, p.lon, tequila[1] / 1000, tequila[2] / 1000) > 9.9);
-  const out = describePoint(p, geo, localidades);
-  assert.ok(out.kind === 'far' || out.km <= 5, JSON.stringify(out));
-  assert.notEqual(out.place, 'Tequila');
+  // La búsqueda con recuadro da lo mismo que comparar contra todas las localidades.
+  for (const p of [GDL, { lat: 18.98998, lon: -88.56607 }, { lat: 16.75, lon: -91.9 }, { lat: 31.05, lon: -115.45 }, { lat: 21.52, lon: -87.38 }, { lat: 25.83, lon: -108.4 }]) {
+    let best = Infinity, at = -1;
+    for (let i = 0; i < n; i++) { const km = haversineKm(p.lat, p.lon, real.lat[i] / 1000, real.lon[i] / 1000); if (km < best) { best = km; at = i; } }
+    const got = nearestPlace(p, real);
+    if (best > 5) assert.equal(got, null, JSON.stringify(p));
+    else { assert.equal(got.name, real.names[at]); assert.ok(Math.abs(got.km - best) < 1e-9); }
+  }
 });
 test('lugar: ninguna petición a otro dominio, y crédito a GeoNames en el pie y el README', () => {
   for (const name of ['place.js', 'fire.js']) {
@@ -167,13 +183,35 @@ test('archivo de localidades ausente: solo el estado, sin error, y una sola peti
   assert.match(block.find('fire-message').value, /\(https:[^)]+\), in Jalisco\. /);
   assert.equal(block.find('fire-share-photo'), null);
 });
-test('localidades cargadas: la frase del lugar aparece en la página y en el mensaje', async () => {
-  placesReply = { ok: true, json: async () => localidades };
+test('localidades que llegan tarde: el veredicto y el 911 ya están, y solo cambian la línea del lugar y el mensaje', async () => {
+  let release; placesReply = new Promise(resolve => { release = resolve; });
   block = build(); await tick();
   assert.deepEqual(requests, ['data/localidades_mx.json', 'data/localidades_mx.json']);
-  assert.equal(block.find('fire-where').textContent, 'In Guadalajara, Jalisco.');
+  // Antes de que llegue el archivo: resultado completo con el estado.
+  const before = block.find('fire-result').children.slice(), heading = block.find('fire-result-title'), call = block.find('fire-call'), where = block.find('fire-where');
+  assert.ok(block.find('fire-verdict').textContent.length > 20 && call && block.find('fire-copy'));
+  assert.equal(where.textContent, 'In Jalisco.');
+  assert.match(block.find('fire-message').value, /\), in Jalisco\. /);
+  const note = block.find('fire-more').children.find(e => /reference point in GeoNames, not to its edge/.test(e.textContent));
+  assert.equal(note.hidden, true);
+  release({ ok: true, json: async () => localidades }); await tick();
+  // Después: los mismos nodos (nada se volvió a dibujar, así que el foco y la página no se mueven).
+  assert.deepEqual(block.find('fire-result').children.map((e, i) => e === before[i]), before.map(() => true));
+  assert.equal(block.find('fire-result-title'), heading); assert.equal(block.find('fire-call'), call); assert.equal(block.find('fire-where'), where);
+  assert.equal(where.textContent, 'In Guadalajara, Jalisco.');
   assert.match(block.find('fire-message').value, /^I want to report a possible fire at 20\.67670, -103\.34750 \(https:[^)]+\), in Guadalajara, Jalisco\. /);
-  assert.ok(block.find('fire-more').children.some(e => /reference point in GeoNames, not to its edge/.test(e.textContent)));
+  assert.equal(note.hidden, false);
+  await block.find('fire-copy').fire('click');
+  assert.equal(nav.copied, block.find('fire-message').value);
+});
+test('orden del resultado: punto, lugar, veredicto, reporte (911), pases y al final los detalles', () => {
+  const tle = read('./fixtures/tle.sample.json');
+  const b = buildFireBlock({ snapshot, tle, geo, mapApi });
+  const order = b.find('fire-result').children.map(e => e.className || e.tagName);
+  assert.deepEqual([order[0], order[1], order[2]], ['fire-result-title', 'fire-point', 'fire-where']);
+  assert.ok(order.indexOf('fire-verdict') > 2);
+  assert.deepEqual(order.slice(-3), ['fire-report', 'fire-passes', 'fire-more']);
+  assert.equal(b.find('fire-report').children[1].className, 'fire-call');
 });
 test('compartir: sin foto no hay botón aunque el navegador pueda', () => {
   nav.canShare = () => true; nav.share = async () => {};

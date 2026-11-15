@@ -702,7 +702,9 @@ export function formatClock(iso) {
   return language === 'en' ? `${p.month} ${p.day} · ${p.time} UTC` : `${p.day} ${p.month} · ${p.time} UTC`;
 }
 const englishNames ={ MX:'Mexico (national)', 'MX-DIF':'Mexico City', 'MX-MEX':'State of Mexico' };
-export function regionName(id, names) { return language === 'en' ? englishNames[id] ?? names[id] ?? id : names[id] ?? id; }
+// Los datos conservan el nombre anterior de MX-DIF ("Distrito Federal"); la web muestra el vigente.
+const spanishNames = { 'MX-DIF':'Ciudad de México' };
+export function regionName(id, names) { return (language === 'en' ? englishNames : spanishNames)[id] ?? names[id] ?? id; }
 // Textos de la capa de humo (NOAA HMS), en un bloque aparte al final para no reordenar los
 // diccionarios. Mismas claves y marcadores en ES y EN.
 Object.assign(dictionaries.es, {
