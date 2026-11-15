@@ -100,11 +100,12 @@ details:not([open]) > :not(summary){display:none}
 .fire-photo{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
 .fire-photo-label{display:inline-flex;align-items:center;min-height:44px;margin:0;padding:8px 16px;border:1px solid var(--line);border-radius:2px;cursor:pointer}
 .fire-photo-label:hover{border-color:var(--text)}
+.fire-photo-actions{display:flex;flex-wrap:wrap;gap:8px}
 .fire-photo:focus-visible+.fire-photo-label{outline:3px solid var(--text);outline-offset:3px}
 .fire-choose{display:grid;gap:8px}
 .fire-choose p{margin:0}
-.fire-choice,.fire-use,.fire-copy{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:2px;text-align:left}
-.fire-choice:hover,.fire-use:hover,.fire-copy:hover{border-color:var(--text)}
+.fire-choice,.fire-use,.fire-copy,.fire-share-photo{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:2px;text-align:left}
+.fire-choice:hover,.fire-use:hover,.fire-copy:hover,.fire-share-photo:hover{border-color:var(--text)}
 .fire-manual{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end}
 .fire-field{flex:1;min-width:120px}
 .fire-field label{margin:0 0 4px}
