@@ -25,7 +25,7 @@ function startCount(root){
 function startFlames(root){
   const flames=[...root.querySelectorAll('.live-map-frame use[data-frp]')];
   if(reduced())return;
-  flameStagger(flames.map(el=>({frp:Number(el.dataset.frp)}))).forEach(({index,delay})=>flames[index].animate([{opacity:0,transform:'translateY(6px) scale(0)'},{opacity:.85,transform:'translateY(0) scale(1)'}],{duration:100,delay,easing:'cubic-bezier(.22,1,.36,1)'}));
+  flameStagger(flames.map(el=>({frp:Number(el.dataset.frp)}))).forEach(({index,delay})=>flames[index].animate([{opacity:0},{opacity:.85}],{duration:240,delay,easing:'cubic-bezier(.22,1,.36,1)'}));
 }
 function startCalendar(root){
   if(reduced())return;
