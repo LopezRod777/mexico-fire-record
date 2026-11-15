@@ -145,6 +145,7 @@ details:not([open]) > :not(summary){display:none}
 .live-goes-toggle[aria-pressed="true"]{border-color:var(--ice);color:var(--ice)}
 .live-modis-real{margin:0 0 24px;font-size:clamp(18px,1rem + .4vw,22px);line-height:1.35;max-width:52ch}
 @media(max-width:600px){.live-controls button{flex:1 1 0;width:auto}}
+.fire-more{margin-top:24px;border-top:1px solid var(--line)}.fire-more summary{display:flex;align-items:center;min-height:44px;cursor:pointer;font-weight:600}.fire-more>p{color:var(--muted)}.fire-more .fire-conafor{margin:0 0 10px}.fire-more summary::after{content:"+";margin-left:10px;font-weight:400}.fire-more[open] summary::after{content:"\2212"}
 /* Humo de NOAA HMS: manchas grises bajo las llamas; no se animan ni capturan toques. */
 .live-smoke{fill:var(--ash);fill-rule:evenodd;stroke:var(--ash);stroke-width:1;stroke-opacity:.6;stroke-dasharray:4 3;vector-effect:non-scaling-stroke;pointer-events:none}
 .legend-smoke{fill:var(--ash);stroke:var(--ash);stroke-width:1;stroke-opacity:.6;stroke-dasharray:3 2}
