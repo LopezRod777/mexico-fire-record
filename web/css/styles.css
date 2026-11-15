@@ -179,3 +179,17 @@ details:not([open]) > :not(summary){display:none}
 .season .limit{font-size:16px;margin:0}
 @media(max-width:900px){.calendar-extras{display:block}.season{margin-top:56px}}
 @media(max-width:600px){.cite-actions button{width:100%}}
+/* Escritorio: Salud y Método usan el ancho completo. A la izquierda van el título, los controles y la
+   explicación; a la derecha, la gráfica. En celular (≤900 px) no cambia nada. */
+@media(min-width:901px){
+.health-grid article{grid-template-rows:repeat(8,auto) 1fr}
+.health-grid article>h3,.health-grid article>label,.health-grid article>select,.health-grid article>.inline-controls,.health-grid article>.meaning,.health-grid article>.limit,.health-grid article>.version-legend{grid-column:1}
+.health-grid article>h3,.health-grid article>.meaning,.health-grid article>.limit{margin-right:clamp(32px,5vw,96px)}
+.health-grid article>label,.health-grid article>select{justify-self:start}
+.health-grid article>.chart,.health-grid article>#version-table{grid-column:2;grid-row:1/-1;align-self:start}
+#metodo{display:grid;grid-template-columns:42% 58%;align-items:start}
+#metodo h2{margin-left:0;margin-right:clamp(32px,5vw,96px)}
+.method-list{margin:0;max-width:none;columns:2 17rem;column-gap:clamp(32px,4vw,64px)}
+.method-list li{break-inside:avoid}
+.health-grid .inline-controls label{display:inline-flex;align-items:center;gap:8px;margin-right:16px}
+}
