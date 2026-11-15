@@ -5,7 +5,7 @@ import { t, formatDate, formatDay, formatClock, formatLocalTime, formatUtcTime, 
 import { clusterSummary, worldviewUrl, focusView, pickBox, snapshotWindow } from './nearby.js';
 import { predictPasses, firstPass, CENTER_MX } from './passes.js';
 import { buildFireBlock } from './fire.js';
-import { validSmoke, attachSmoke } from './smoke.js';
+import { validSmoke, attachSmoke, regionalLimit } from './smoke.js';
 import { FRP_CUTS, frpClass, clusterHeight, clusterDetections, clusterAttrs, detectionTime, satellitePasses, modisProbabilities, modisExpected, modisSelection, timelineBins, timelineFraction, timelineSeek, timelineKey, replaySchedule, scheduleTime, scheduleProgress, passNow } from './replay.js';
 export { flameHeight } from './flame.js';
 
@@ -420,7 +420,7 @@ function renderLive(snapshot,names,geo,health,notice,tle) {
   const ranking=node('div','live-ranking');ranking.append(node('h3','',t('live.rankTitle')));if(!s.ranking.length)ranking.append(node('p','',t('live.noElevated')));
   else {const list=node('ol','live-rank-list');s.ranking.forEach(item=>{const row=node('li','live-rank-row');row.append(node('strong','',item.name),node('span','',rankingComparison(item)),node('span',`live-level level-${item.nivel}`,levelBadge(item.nivel)));list.append(row);});ranking.append(list);}
   const method=node('details','live-method');method.append(node('summary','',t('live.methodTitle')),node('p','',t('live.flameNote')));for(let i=1;i<=6;i++)method.append(node('p','',t(`live.method.${i}`)));if(modis)method.append(node('p','',t('live.methodModis')));if(goes)method.append(node('p','',t('live.methodGoes')));method.append(node('p','',t('live.rankNote')));
-  if(humo)method.lastChild.before(node('p','',t('live.methodSmoke')));
+  if(humo)method.lastChild.before(node('p','',t('live.methodSmoke',{km2:number(regionalLimit(humo))})));
   const after=node('div','live-after');after.append(ranking,detectionTable,method);
   const mapBlock=node('div','live-map-block');if(notice)mapBlock.append(node('p','live-stale',notice));
   // GOES: hora real de su detección más reciente y de la captura, porque "lo más nuevo" depende de cuándo se bajó.

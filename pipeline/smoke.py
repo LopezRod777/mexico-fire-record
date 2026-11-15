@@ -3,7 +3,11 @@
 Son áreas de humo que analistas de NOAA trazan sobre imágenes diurnas de GOES; no son perímetros
 de incendio ni prueba de fuego en un punto, y no se suman a ningún conteo. Density (Light, Medium,
 Heavy) es la categoría que pone el analista, no una concentración medida.
+
+Solo se guardan las plumas locales: las áreas de más de REGIONAL_KM2 son bruma regional que cubre
+medio país y no dice nada sobre un punto, así que se dejan fuera y se anota cuántas fueron.
 """
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,6 +21,18 @@ DENSITIES = ("Light", "Medium", "Heavy")
 TOLERANCE = 0.005  # grados (~0.5 km): tolerancia de la simplificación
 DECIMALS = 3
 STEP = 0.05        # grados: separación máxima de los puntos con que se prueba cada borde
+REGIONAL_KM2 = 50_000  # km²: por encima es bruma regional. El 14 nov 2026 las 8 plumas locales que
+#                        tocaban México medían de 48 a 4,979 km² y las 3 regionales, de 1.08 a 11.5 millones.
+EARTH_KM = 6371.0088
+
+
+def area_km2(rings) -> float:
+    """Área sobre la esfera de un polígono en lon/lat (los huecos restan, por el sentido del anillo)."""
+    total = 0.0
+    for ring in rings:
+        for (x1, y1), (x2, y2) in zip(ring, ring[1:]):
+            total += math.radians(x2 - x1) * (2 + math.sin(math.radians(y1)) + math.sin(math.radians(y2)))
+    return abs(total) * EARTH_KM ** 2 / 2
 
 
 def smoke_url(day) -> str:
@@ -30,6 +46,16 @@ def parse_time(text: str) -> datetime:
     if len(parts) != 2 or len(parts[0]) != 7 or len(parts[1]) != 4:
         raise ValueError(f"hora de HMS inesperada: {text!r}")
     return datetime.strptime(parts[0] + parts[1], "%Y%j%H%M").replace(tzinfo=timezone.utc)
+
+
+def check_records(records) -> None:
+    """ValueError si un registro con polígono no trae horas de HMS legibles y en orden.
+
+    Se usa al bajar: un archivo con otro formato se anota como fallo y no llega a la captura.
+    """
+    for record in records:
+        if record["anillos"] and not parse_time(record["atributos"].get("Start", "")) < parse_time(record["atributos"].get("End", "")):
+            raise ValueError("intervalo de HMS con fin antes del inicio")
 
 
 def iso(moment: datetime) -> str:
@@ -159,7 +185,11 @@ def read_smoke(fetch, raw: Path):
 
 
 def smoke_summary(records, days, features, lower: datetime, upper: datetime):
-    """Campo `humo` de la captura: polígonos cuyo intervalo cae en (lower, upper] y tocan México."""
+    """Campo `humo` de la captura: plumas locales cuyo intervalo cae en (lower, upper] y tocan México.
+
+    Las áreas que tocan México pero miden más de REGIONAL_KM2 no se guardan; se cuentan en
+    `n_regionales_omitidas`.
+    """
     if records is None:
         return None
     timed = []
@@ -171,15 +201,22 @@ def smoke_summary(records, days, features, lower: datetime, upper: datetime):
         if end > lower and start <= upper:
             timed.append((start, end, attrs["Density"], attrs.get("Satellite", ""), record["anillos"]))
     touching = touches_mexico([item[4] for item in timed], features)
-    polygons = []
+    polygons, regional = [], 0
     for (start, end, density, satellite, rings), touches in zip(timed, touching):
+        if not touches:
+            continue
+        area = area_km2(rings)
+        if area > REGIONAL_KM2:
+            regional += 1
+            continue
         simple = [ring for ring in (simplify_ring(ring) for ring in rings) if ring]
-        if touches and simple:
+        if simple:
             polygons.append({"inicio": iso(start), "fin": iso(end), "densidad": density,
-                             "sat": satellite, "anillos": simple})
+                             "sat": satellite, "area_km2": round(area), "anillos": simple})
     polygons.sort(key=lambda p: (p["inicio"], p["fin"], DENSITIES.index(p["densidad"]), p["sat"], p["anillos"]))
     return {"fuente": "NOAA_HMS_SMOKE", "ventana_horas": int((upper - lower) / timedelta(hours=1)),
             "dias": days, "poligonos_en_ventana": len(timed), "n": len(polygons),
+            "umbral_regional_km2": REGIONAL_KM2, "n_regionales_omitidas": regional,
             "por_densidad": {density: sum(p["densidad"] == density for p in polygons) for density in DENSITIES},
             "ultima_utc": max((p["fin"] for p in polygons), default=None),
             "tolerancia_grados": TOLERANCE, "poligonos": polygons}

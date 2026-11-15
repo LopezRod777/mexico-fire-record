@@ -284,6 +284,9 @@ def smoke_real(snapshot):
     if not read:
         assert smoke is None and all(s in snapshot["fuentes_extra_error"] for s in sources)
         return "el humo no se descargó en esta captura: campo nulo y errores anotados"
+    if "HMS_SMOKE" in snapshot["fuentes_extra_error"]:
+        assert smoke is None
+        return f"el humo no se pudo armar en esta captura: campo nulo y error anotado ({snapshot['fuentes_extra_error']['HMS_SMOKE']})"
     for source in sources:
         assert info["fuentes_extra"][source]["fecha"] == (download.date() - timedelta(days=sources[source])).isoformat()
     raw = []
@@ -293,15 +296,33 @@ def smoke_real(snapshot):
             shp, dbf = archive.read(name), archive.read(name[:-4] + ".dbf")
         n_rows, header_len, record_len = struct.unpack("<IHH", dbf[4:12])
         assert n_rows == info["fuentes_extra"][source]["poligonos"], source
+        # Posición de cada campo según el encabezado de la tabla (nombre en 11 bytes, ancho en el byte 16).
+        columns, at = {}, 1
+        for k in range((header_len - 33) // 32):
+            field = dbf[32 + 32 * k:64 + 32 * k]
+            columns[field[:11].split(b"\x00")[0].decode("ascii")] = (at, at + field[16])
+            at += field[16]
         offset = 100
         for i in range(n_rows):
             row = dbf[header_len + i * record_len:header_len + (i + 1) * record_len].decode("latin-1")
-            sat, begin, end, density = row[1:21].strip(), row[21:33], row[33:45], row[45:52].strip()
-            when = [datetime.strptime(v.replace(" ", ""), "%Y%j%H%M").replace(tzinfo=timezone.utc) for v in (begin, end)]
+            sat, begin, end, density = (row[slice(*columns[name])].strip() for name in ("Satellite", "Start", "End", "Density"))
             words, = struct.unpack(">i", shp[offset + 4:offset + 8])
+            if struct.unpack("<i", shp[offset + 8:offset + 12])[0] == 0 or density not in ("Light", "Medium", "Heavy"):
+                offset += 8 + words * 2  # registro nulo o densidad desconocida: el pipeline tampoco lo cuenta
+                continue
+            when = [datetime.strptime(v.replace(" ", ""), "%Y%j%H%M").replace(tzinfo=timezone.utc) for v in (begin, end)]
             n_parts, n_points = struct.unpack("<2i", shp[offset + 44:offset + 52])
             flat = struct.unpack(f"<{2 * n_points}d", shp[offset + 52 + 4 * n_parts:offset + 52 + 4 * n_parts + 16 * n_points])
-            raw.append((when[0], when[1], density, sat, list(zip(flat[0::2], flat[1::2]))))
+            parts = list(struct.unpack(f"<{n_parts}i", shp[offset + 52:offset + 52 + 4 * n_parts])) + [n_points]
+            points = list(zip(flat[0::2], flat[1::2]))
+            # Área aparte, con otra fórmula que la del pipeline: plano local (grados × km por grado, con
+            # el coseno de la latitud media del anillo) y fórmula del agrimensor; los huecos restan.
+            area = 0.0
+            for a, b in zip(parts, parts[1:]):
+                ring = points[a:b]
+                scale = math.cos(math.radians(sum(y for _, y in ring) / len(ring)))
+                area += sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(ring, ring[1:])) / 2 * scale * 111.195 ** 2
+            raw.append((when[0], when[1], density, sat, points, abs(area)))
             offset += 8 + words * 2
         assert offset == len(shp), source
     in_window = [r for r in raw if r[1] > start and r[0] <= download]
@@ -309,19 +330,29 @@ def smoke_real(snapshot):
     assert smoke["dias"] == sorted(info["fuentes_extra"][s]["fecha"] for s in read)
     assert smoke["poligonos_en_ventana"] == len(in_window), (smoke["poligonos_en_ventana"], len(in_window))
     assert smoke["n"] == len(smoke["poligonos"]) <= len(in_window)
+    limit = smoke["umbral_regional_km2"]
+    assert limit == 50000 and isinstance(smoke["n_regionales_omitidas"], int) and smoke["n_regionales_omitidas"] >= 0
     assert sum(smoke["por_densidad"].values()) == smoke["n"]
     assert smoke["ultima_utc"] == max((p["fin"] for p in smoke["poligonos"]), default=None)
-    # Los que tienen al menos un vértice crudo dentro de un estado deben estar todos en la captura.
-    vertex_inside = 0
-    for begin, end, density, sat, points in in_window:
+    # Con al menos un vértice crudo dentro de un estado: las plumas locales deben estar todas en la
+    # captura y las áreas regionales (más de 50,000 km²) no deben estar. Entre 0.8 y 1.25 veces el
+    # umbral no se exige nada, porque el área de aquí es aproximada.
+    vertex_inside = regional = 0
+    for begin, end, density, sat, points, area in in_window:
         lon, lat = np.array([p[0] for p in points]), np.array([p[1] for p in points])
-        if (assign(lat, lon, features) != "OUT").any():
+        if not (assign(lat, lon, features) != "OUT").any():
+            continue
+        stamp = (begin.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ"), density, sat)
+        near = {(round(x, 3), round(y, 3)) for x, y in points}
+        found = any((p["inicio"], p["fin"], p["densidad"], p["sat"]) == stamp
+                    and {tuple(c) for c in p["anillos"][0]} <= near for p in smoke["poligonos"])
+        if area > 1.25 * limit:
+            regional += 1
+            assert not found, ("área regional en la captura", stamp, round(area))
+        elif area < 0.8 * limit:
             vertex_inside += 1
-            stamp = (begin.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ"), density, sat)
-            near = {(round(x, 3), round(y, 3)) for x, y in points}
-            assert any((p["inicio"], p["fin"], p["densidad"], p["sat"]) == stamp
-                       and {tuple(c) for c in p["anillos"][0]} <= near for p in smoke["poligonos"]), stamp
-    assert vertex_inside <= smoke["n"]
+            assert found, ("pluma local ausente", stamp, round(area))
+    assert vertex_inside <= smoke["n"] and regional <= smoke["n_regionales_omitidas"]
     for polygon in smoke["poligonos"]:
         begin, end = (datetime.fromisoformat(polygon[k].replace("Z", "+00:00")) for k in ("inicio", "fin"))
         assert begin < end and end > start and begin <= download, polygon["inicio"]
@@ -331,14 +362,19 @@ def smoke_real(snapshot):
             assert all(round(x, 3) == x and round(y, 3) == y and -180 <= x <= 180 and -90 <= y <= 90 for x, y in ring)
         # Procedencia: cada polígono de la captura sale de un registro crudo con los mismos atributos.
         stamp = (begin, end, polygon["densidad"], polygon["sat"])
-        assert any(r[:4] == stamp and {tuple(c) for c in polygon["anillos"][0]} <= {(round(x, 3), round(y, 3)) for x, y in r[4]}
-                   for r in in_window), polygon["inicio"]
+        source = [r for r in in_window if r[:4] == stamp
+                  and {tuple(c) for c in polygon["anillos"][0]} <= {(round(x, 3), round(y, 3)) for x, y in r[4]}]
+        assert source, polygon["inicio"]
+        assert 0 < polygon["area_km2"] <= limit, polygon["area_km2"]
+        assert any(abs(polygon["area_km2"] - r[5]) <= max(2, 0.03 * r[5]) for r in source), (polygon["area_km2"], source[0][5])
     size = len(json.dumps(smoke, ensure_ascii=False, separators=(",", ":")).encode())
     assert size < 60000, size
     per_day = ", ".join("{fecha}: {poligonos}".format(**info["fuentes_extra"][s]) for s in read)
-    return (f"humo HMS: {len(raw)} polígonos crudos ({per_day}), "
-            f"{len(in_window)} en la ventana, {smoke['n']} tocan México ({vertex_inside} con vértice dentro de un estado, "
-            f"{smoke['n'] - vertex_inside} solo por borde o por cubrirlo); {smoke['por_densidad']}; {size} bytes en la captura")
+    areas = sorted(p["area_km2"] for p in smoke["poligonos"])
+    return (f"humo HMS: {len(raw)} polígonos crudos ({per_day}), {len(in_window)} en la ventana, "
+            f"{smoke['n']} plumas locales tocan México ({vertex_inside} con vértice dentro de un estado; "
+            f"de {areas[0] if areas else 0} a {areas[-1] if areas else 0} km²) y {smoke['n_regionales_omitidas']} áreas de más de "
+            f"{limit} km² se omiten ({regional} recontadas aparte con vértice dentro); {smoke['por_densidad']}; {size} bytes en la captura")
 
 
 def smoke_failure_isolated():

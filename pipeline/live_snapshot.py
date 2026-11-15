@@ -206,10 +206,16 @@ def build():
     features = json.loads((ROOT / "web/data/geo/mx_states.geojson").read_text())["features"]
     modis = modis_summary(read_extra(fetch, "MODIS_NRT", historical, features), states, lower, upper)
     goes = goes_summary(read_extra(fetch, "GOES_NRT", historical, features), states, upper)
-    smoke = smoke_summary(*read_smoke(fetch, RAW), features, downloaded - timedelta(hours=24), downloaded)
+    try:  # el humo es opcional: si algo falla al armarlo, se anota y la captura de VIIRS sigue
+        smoke, smoke_error = smoke_summary(*read_smoke(fetch, RAW), features, downloaded - timedelta(hours=24), downloaded), None
+    except Exception as error:
+        smoke, smoke_error = None, f"no se pudo armar el humo ({type(error).__name__})"
+        print(f"HMS_SMOKE: {smoke_error}; se sigue sin él", file=sys.stderr)
     extra_errors = {source: status.get("error", "sin estado")
                     for source, status in fetch.get("fuentes_extra", {"MODIS_NRT": {}, "GOES_NRT": {}}).items()
                     if not status.get("ok")}
+    if smoke_error:
+        extra_errors["HMS_SMOKE"] = smoke_error
     snapshot = {
         "generado": fetch["descargado_utc"],
         "ultima_deteccion_utc": latest.strftime("%Y-%m-%dT%H:%M:%SZ") if pd.notna(latest) else None,
@@ -233,7 +239,8 @@ def build():
           f"{len(recent_rows)} detecciones 24 h; {out_count} OUT; "
           f"MODIS 24 h={modis and modis['n_24h']}; GOES 3 h filas={goes and goes['filas_ventana']}, "
           f"puntos={goes and len(goes['puntos'])}, última={goes and goes['ultima_utc']}; "
-          f"humo HMS={smoke and smoke['n']} de {smoke and smoke['poligonos_en_ventana']} en ventana; "
+          f"humo HMS={smoke and smoke['n']} plumas locales (+{smoke and smoke['n_regionales_omitidas']} regionales "
+          f"omitidas) de {smoke and smoke['poligonos_en_ventana']} en ventana; "
           f"errores={extra_errors}")
     return snapshot
 

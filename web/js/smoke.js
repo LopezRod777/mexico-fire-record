@@ -1,4 +1,5 @@
-// Capa de humo de NOAA HMS: áreas que analistas de NOAA trazan sobre imágenes diurnas de GOES.
+// Capa de humo de NOAA HMS: plumas locales que analistas de NOAA trazan sobre imágenes diurnas de
+// GOES. La captura ya deja fuera las áreas extensas de bruma regional y dice cuántas fueron.
 // No son perímetros de incendio ni prueba de fuego en un punto, y no se suman a ningún conteo.
 // La capa se dibuja una sola vez por render (nada por cuadro) y nunca se anima.
 import { geometryToPath } from './geo.js';
@@ -41,6 +42,11 @@ export function smokeAt(point, humo) {
   return best && { from: best.inicio.slice(11, 16), to: best.fin.slice(11, 16), date: best.inicio.slice(0, 10), densidad: best.densidad };
 }
 
+// Áreas extensas de bruma que la captura dejó fuera (0 si la captura no lo dice).
+export function omittedCount(humo) { return Number.isInteger(humo?.n_regionales_omitidas) && humo.n_regionales_omitidas > 0 ? humo.n_regionales_omitidas : 0; }
+// Umbral de área (km²) por encima del cual un trazo es bruma regional y no se dibuja.
+export function regionalLimit(humo) { return Number.isFinite(humo?.umbral_regional_km2) ? humo.umbral_regional_km2 : 50000; }
+
 function svgNode(tag, attrs) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); return e; }
 function node(tag, className, text) { const e = document.createElement(tag); if (className) e.className = className; if (text != null) e.textContent = text; return e; }
 const densityClass = d => `smoke-${d.toLowerCase()}`;
@@ -75,7 +81,8 @@ export function attachSmoke({ humo, svg, controls, capture, legendRow }) {
     })));
   }
   const note = node('p', 'live-legend-note live-smoke-note');
-  const count = humo.n === 0 ? t('live.smokeNone') : t(humo.n === 1 ? 'live.smokeOne' : 'live.smokeMany', { n: number(humo.n), time: humo.ultima_utc.slice(11, 16), date: formatDay(humo.ultima_utc.slice(0, 10)) });
+  const left = omittedCount(humo), omitted = left ? t(left === 1 ? 'live.smokeOmittedOne' : 'live.smokeOmitted', { n: number(left) }) : '';
+  const count = humo.n === 0 ? t('live.smokeNone', { omitted }) : t(humo.n === 1 ? 'live.smokeOne' : 'live.smokeMany', { n: number(humo.n), time: humo.ultima_utc.slice(11, 16), date: formatDay(humo.ultima_utc.slice(0, 10)), omitted });
   note.append(node('strong', '', t('live.smokeLead')), ' ', count, ' ', t('live.smokeCapture', { capture: formatDate(capture) }));
   out.legend.push(note);
   return out;

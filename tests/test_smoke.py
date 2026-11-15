@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipeline"))
 from shapefile_min import ShapefileError, read_dbf, read_polygons, read_zip
-from smoke import parse_time, simplify_ring, smoke_summary, touches_mexico
+from smoke import REGIONAL_KM2, area_km2, check_records, parse_time, simplify_ring, smoke_summary, touches_mexico
 
 failures = 0
 features = json.loads((ROOT / "web/data/geo/mx_states.geojson").read_text())["features"]
@@ -162,7 +162,15 @@ def times():
         except ValueError:
             continue
         raise AssertionError(bad)
-    return "día del año → fecha UTC (incluye bisiesto) y 4 formatos inválidos rechazados"
+    # Contenido que el lector acepta pero la descarga debe rechazar: horas ilegibles o al revés.
+    check_records(read_zip(zip_bytes(shp_bytes([[SQUARE], None]), dbf_bytes([ROW, {**ROW, "Start": "", "End": ""}]))))
+    for bad in ({**ROW, "Start": "14/11/2026"}, {**ROW, "End": ""}, {**ROW, "Start": "2026318 1700"}):
+        try:
+            check_records(read_zip(zip_bytes(shp_bytes([[SQUARE]]), dbf_bytes([bad]))))
+        except ValueError:
+            continue
+        raise AssertionError(bad)
+    return "día del año → fecha UTC (incluye bisiesto), 4 formatos inválidos y 3 archivos con horas ilegibles o al revés rechazados"
 
 
 def simplification():
@@ -216,13 +224,38 @@ def summary_window():
                record([], "2026318 1610", "2026318 1800")]                  # registro nulo
     summary = smoke_summary(records, ["2026-11-14", "2026-11-15"], features, lower, upper)
     assert summary["n"] == 2 and summary["poligonos_en_ventana"] == 3, summary
+    assert summary["n_regionales_omitidas"] == 0 and summary["umbral_regional_km2"] == REGIONAL_KM2
+    assert all(abs(p["area_km2"] - 2845) < 15 for p in summary["poligonos"]), [p["area_km2"] for p in summary["poligonos"]]
     assert summary["por_densidad"] == {"Light": 0, "Medium": 1, "Heavy": 1}
     assert [p["inicio"] for p in summary["poligonos"]] == ["2026-11-14T13:00:00Z", "2026-11-15T14:00:00Z"]
     assert summary["ultima_utc"] == "2026-11-15T15:00:00Z" and summary["ventana_horas"] == 24
     empty = smoke_summary([], ["2026-11-15"], features, lower, upper)
     assert empty["n"] == 0 and empty["ultima_utc"] is None and empty["poligonos"] == []
     assert smoke_summary(None, [], features, lower, upper) is None
-    return "bordes de la ventana (fin > inicio de ventana, inicio ≤ captura), fuera de México, archivo vacío y sin archivo"
+    # Bruma regional: toca México pero mide más que el umbral, así que se omite y se cuenta.
+    haze = smoke_summary([record([inside], "2026318 1300", "2026318 1600"),
+                          record([box(-110, 15, -95, 30)], "2026318 1300", "2026318 1600"),
+                          record([box(-104.2, 21.9, -102, 24)], "2026318 1610", "2026318 1800"),   # ~52,600 km²
+                          record([box(-104.1, 21.9, -102, 24)], "2026318 1610", "2026318 1800"),   # ~50,200: en el límite, fuera
+                          record([box(-104.0, 21.9, -102, 24)], "2026318 1610", "2026318 1800")],  # ~47,800: local
+                         ["2026-11-14"], features, lower, upper)
+    assert haze["n"] == 2 and haze["n_regionales_omitidas"] == 3 and haze["poligonos_en_ventana"] == 5, haze
+    assert sorted(p["area_km2"] for p in haze["poligonos"])[0] < 3000 < 45000 < sorted(p["area_km2"] for p in haze["poligonos"])[1] <= REGIONAL_KM2
+    return "bordes de la ventana, fuera de México, archivo vacío, sin archivo y bruma regional omitida y contada"
+
+
+def areas():
+    one = area_km2([box(0, 0, 1, 1)])
+    assert abs(one - 12364) < 2, one                                   # 1° × 1° en el ecuador
+    assert abs(area_km2([box(-100, 59, -99, 60)]) - 6274) < 5          # 1° × 1° a 59.5° N: cerca de la mitad
+    assert area_km2([box(0, 0, 1, 1)[::-1]]) == one                    # el sentido del anillo no cambia el área
+    hole = area_km2([box(-100, 20, -96, 24), box(-99, 21, -97, 23)[::-1]])
+    assert abs(hole - (area_km2([box(-100, 20, -96, 24)]) - area_km2([box(-99, 21, -97, 23)]))) < 1e-6  # el hueco resta
+    mexico = sum(area_km2(polygon) for feature in features
+                 for polygon in ([feature["geometry"]["coordinates"]] if feature["geometry"]["type"] == "Polygon"
+                                 else feature["geometry"]["coordinates"]))
+    assert abs(mexico - 1964375) / 1964375 < 0.005, mexico             # superficie oficial de México
+    return f"1° × 1° en el ecuador = {one:.0f} km²; hueco resta; México (32 estados) = {mexico:,.0f} km², a menos de 0.5 % de la cifra oficial"
 
 
 check("lector: shapefiles válidos", reader_valid)
@@ -232,5 +265,6 @@ check("horas de HMS", times)
 check("simplificación", simplification)
 check("tocar México con la geometría de los estados", mexico_touch)
 check("resumen y ventana", summary_window)
+check("áreas en km² sobre la esfera", areas)
 print(f"RESULTADO: {failures} fallo(s)")
 sys.exit(1 if failures else 0)

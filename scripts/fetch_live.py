@@ -20,8 +20,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipeline"))
-from shapefile_min import ShapefileError, read_zip
-from smoke import SMOKE_FILES, smoke_url
+from shapefile_min import read_zip
+from smoke import SMOKE_FILES, check_records, smoke_url
 RAW = ROOT / "data/live/raw"
 BBOX = [-118.4, 14.5, -86.7, 32.7]
 DAY_RANGE = 2
@@ -77,7 +77,8 @@ def fetch_smoke(now: datetime) -> tuple[dict, dict]:
             with urllib.request.urlopen(smoke_url(day), timeout=60) as response:
                 blob = response.read()
             records = read_zip(blob)
-        except ShapefileError as error:
+            check_records(records)
+        except ValueError as error:  # incluye ShapefileError: zip dañado, shapefile truncado u horas ilegibles
             status[source] = {"ok": False, "fecha": day.isoformat(), "error": f"archivo ilegible ({error})"}
             print(f"{source}: archivo ilegible ({error}); se sigue sin él", file=sys.stderr)
             continue
