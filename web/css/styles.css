@@ -72,3 +72,64 @@ details:not([open]) > :not(summary){display:none}
 @media(prefers-reduced-motion:reduce){.hero-pulse{animation:none;opacity:0}
 .live-passing,.tl-bin{transition:none}
 }
+.live-cluster{cursor:pointer}
+.live-cluster.is-selected .live-flame{--flame-stroke:var(--text);stroke-width:2.5;opacity:1}
+.live-map-frame>svg.is-zoomed .live-outline{vector-effect:non-scaling-stroke;stroke-width:1}
+.live-focus-dot{fill:var(--fire-6);stroke:var(--bg);stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
+.live-you{fill:none;stroke:var(--ice);stroke-width:2.5;vector-effect:non-scaling-stroke;pointer-events:none}
+.live-you-dot{fill:var(--ice);pointer-events:none}
+.live-map-frame.is-picking>svg{cursor:crosshair}
+.live-pick-hint{position:absolute;top:0;left:0;margin:0;padding:8px 12px;background:var(--bg);color:var(--ice);font-size:16px;font-weight:600;pointer-events:none}
+.live-pick-hint[hidden]{display:none}
+.live-focus:empty{display:none}
+.live-focus{margin:16px 0 8px;padding:20px 0 4px;border-top:1px solid var(--line);max-width:60ch}
+.live-focus p{margin:0 0 10px}
+.live-focus-title{font-size:22px;margin:0 0 12px}
+.live-focus-note{font-size:13px;color:var(--muted)}
+.live-focus-link,.fire-open-map,.fire-conafor{display:inline-flex;align-items:center;min-height:44px;font-weight:600}
+.live-next-pass{display:flex;align-items:baseline;gap:10px;margin:24px 0 0;max-width:44ch}
+.live-next-pass .sat-glyph{transform:translateY(1px)}
+.fire{margin-top:40px;padding-top:24px;border-top:1px solid var(--line);max-width:52ch}
+.fire-title{font-size:22px;margin:0 0 8px}
+.fire-intro{margin:0 0 16px;color:var(--muted)}
+.fire-start{min-width:200px}
+.fire-start[hidden],.fire-panel[hidden],.fire-choose[hidden],.fire-manual[hidden],.fire-again[hidden]{display:none}
+.fire-panel>*+*{margin-top:12px}
+.fire-status:empty,.fire-note:empty{display:none}
+.fire-note{font-size:13px;color:var(--muted);margin:6px 0 0}
+.fire-photo{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.fire-photo-label{display:inline-flex;align-items:center;min-height:44px;margin:0;padding:8px 16px;border:1px solid var(--line);border-radius:2px;cursor:pointer}
+.fire-photo-label:hover{border-color:var(--text)}
+.fire-photo:focus-visible+.fire-photo-label{outline:3px solid var(--text);outline-offset:3px}
+.fire-choose{display:grid;gap:8px}
+.fire-choose p{margin:0}
+.fire-choice,.fire-use,.fire-copy{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:2px;text-align:left}
+.fire-choice:hover,.fire-use:hover,.fire-copy:hover{border-color:var(--text)}
+.fire-manual{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end}
+.fire-field{flex:1;min-width:120px}
+.fire-field label{margin:0 0 4px}
+.fire-field input{width:100%;min-height:44px;padding:8px 10px;background:transparent;color:inherit;border:2px solid currentColor;border-radius:2px}
+.fire-manual .fire-note{flex-basis:100%}
+.fire-again{padding-left:0}
+.fire-result:empty{display:none}
+.fire-result{padding-top:16px;border-top:1px solid var(--line)}
+.fire-result h4{font-size:18px;margin:24px 0 8px}
+.fire-result h4:first-child{margin-top:0}
+.fire-result p{margin:0 0 10px}
+.fire-verdict{font-size:18px;font-weight:600}
+.fire-minimap{display:block;width:100%;max-width:420px;height:auto;margin:8px 0 12px;background:var(--surface)}
+.fire-mini-outline{fill:none;stroke:var(--state);stroke-width:1;vector-effect:non-scaling-stroke}
+.fire-mini-radius{fill:none;stroke:var(--ice);stroke-width:1.5;stroke-dasharray:4 4;vector-effect:non-scaling-stroke}
+.fire-mini-det{fill:var(--fire-5)}
+.fire-mini-you{fill:var(--ice)}
+.fire-mini-label{fill:var(--ice);font-family:Plex Sans,Arial,sans-serif;font-weight:600}
+.fire-pass-list{margin:0;padding-left:20px}
+.fire-pass-list li{margin:0 0 8px}
+.fire-report{margin-top:8px}
+.fire-call{display:inline-flex;align-items:center;justify-content:center;min-height:52px;min-width:220px;padding:10px 24px;background:var(--orange);color:#000;font-weight:600;font-size:18px;text-decoration:none;border-radius:3px}
+.fire-call:hover{background:var(--fire-5)}
+.fire-conafor{display:flex;margin-top:4px}
+.fire-share{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;margin-top:16px}
+.fire-message-label{font-size:13px;margin:12px 0 4px}
+.fire-message{display:block;width:100%;padding:10px;background:transparent;color:var(--text);border:1px solid var(--line);border-radius:2px;font:400 13px/1.45 Plex Sans,Arial,sans-serif;resize:vertical}
+@media(max-width:600px){.fire{margin-top:32px;max-width:none}.fire-start,.fire-call{width:100%}.live-next-pass{max-width:none}}

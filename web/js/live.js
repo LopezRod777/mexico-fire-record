@@ -1,7 +1,10 @@
-import { VIEW, project, geometryToPath } from './geo.js';
+import { VIEW, project, unproject, geometryToPath } from './geo.js';
 import { number } from './format.js';
 import { ensureFlameDefs } from './flame.js';
-import { t, formatDate, formatDay, formatClock, regionName } from './i18n.js';
+import { t, formatDate, formatDay, formatClock, formatLocalTime, formatUtcTime, regionName } from './i18n.js';
+import { clusterSummary, worldviewUrl, zoomBox } from './nearby.js';
+import { predictPasses, firstPass, CENTER_MX } from './passes.js';
+import { buildFireBlock } from './fire.js';
 import { FRP_CUTS, frpClass, clusterHeight, clusterDetections, clusterAttrs, detectionTime, satellitePasses, modisProbabilities, modisExpected, modisSelection, timelineBins, timelineFraction, timelineSeek, timelineKey, replaySchedule, scheduleTime, scheduleProgress, passNow } from './replay.js';
 export { flameHeight } from './flame.js';
 
@@ -42,6 +45,8 @@ const hhmm=time=>new Date(time).toISOString().slice(11,16);
 let resizeTimer;
 let resizeBound=false;
 let replay=null;
+// Punto y modo "elegir en el mapa" de "Vi un fuego": sobreviven al redibujo por cambio de idioma.
+const mapState={you:null,pick:null};
 function legendFlame(height,className) { const icon=svgNode('svg',{viewBox:'0 0 20 28',width:(height*20/28).toFixed(1),height,'aria-hidden':'true'});icon.append(svgNode('use',{href:'#flame',class:`live-flame ${className}`}));return icon; }
 function legendRing() { const icon=svgNode('svg',{viewBox:'-12 -12 24 24',width:20,height:20,'aria-hidden':'true'});icon.append(svgNode('circle',{r:9,class:'legend-ring'}));return icon; }
 // Leyenda compacta: una línea por canal, con iconos y rótulos cortos.
@@ -62,13 +67,15 @@ function clusterTitle(c,points) {
 function clusterNode(c,points,k,focusable) {
   const a=clusterAttrs(c,clusterHeight(c.n),k),label=clusterTitle(c,points),h=clusterHeight(c.n)*k;
   const group=svgNode('g',{class:'live-cluster',...a.position});
-  if(focusable){group.setAttribute('tabindex',0);group.setAttribute('role','img');group.setAttribute('aria-label',label);}
+  if(focusable){group.setAttribute('tabindex',0);group.setAttribute('role','button');group.setAttribute('aria-label',`${label}. ${t('focus.open')}`);}
   const title=svgNode('title',{});title.textContent=label;
+  // Contraescala del zoom: atributo transform en un <g> intermedio que no se anima.
+  const zoom=svgNode('g',{class:'live-zoom',transform:'scale(1)'});
   const ring=svgNode('circle',{class:'live-ring',cx:0,cy:(-h*0.45).toFixed(2),r:(h*0.6).toFixed(2),opacity:0});
   const ignite=svgNode('g',a.ignite),flame=svgNode('use',{href:'#flame',class:'live-flame'});
   const count=svgNode('text',{class:'live-count','font-size':(13*k).toFixed(2),'stroke-width':(3*k).toFixed(2),'aria-hidden':'true'});
-  ignite.append(flame,count);group.append(title,ring,ignite);
-  return {group,ring,ignite,flame,count};
+  ignite.append(flame,count);zoom.append(ring,ignite);group.append(title,zoom);
+  return {group,zoom,ring,ignite,flame,count};
 }
 function paintCluster(c,parts,s,k) {
   const a=clusterAttrs(c,clusterHeight(Math.max(1,s.n)),k);
@@ -125,7 +132,7 @@ function buildTimeline(box,tl,passes) {
   box.replaceChildren(svg);
   return {pad,width:W,x,binEls,head};
 }
-function stopReplay(){ if(!replay)return; cancelAnimationFrame(replay.raf); replay.observer?.disconnect(); replay=null; }
+function stopReplay(){ if(!replay)return; cancelAnimationFrame(replay.raf); cancelAnimationFrame(replay.zoomRaf); replay.observer?.disconnect(); replay.abort?.abort(); replay=null; }
 // Reproducción de las 24 h: el cabezal recorre la línea de tiempo (lento en cada pase, rápido
 // en las horas sin satélite); cada grupo se enciende en el minuto real de su primera detección,
 // lanza un anillo con cada detección nueva y pasa de "recién detectada" a "ya vista".
@@ -164,8 +171,8 @@ function startReplay(ui,dets,passes,tl) {
     ui.svg.querySelector('.live-clusters')?.remove();
     const layer=svgNode('g',{class:'live-clusters'});
     r.clusters=clusterDetections(dets,r.k);r.memberOf=[];
-    r.clusters.forEach((c,ci)=>{c.members.forEach(i=>{r.memberOf[i]=ci;});Object.assign(c,clusterNode(c,dets,r.k,true));layer.append(c.group);});
-    ui.svg.append(layer);
+    r.clusters.forEach((c,ci)=>{c.members.forEach(i=>{r.memberOf[i]=ci;});Object.assign(c,clusterNode(c,dets,r.k,true));layer.append(c.group);c.group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(ci);}});});
+    ui.svg.append(layer,overlay);
     r.timeline=buildTimeline(ui.timeline,tl,passes);
     reset();
     return true;
@@ -183,8 +190,62 @@ function startReplay(ui,dets,passes,tl) {
   }
   function kick(){if(running()&&!r.raf){r.lastNow=null;r.raf=requestAnimationFrame(frame);}}
   function seekTo(time) { r.userPaused=true;updateButton();r.playhead=time>=tl.end?REPLAY_MS:scheduleProgress(time,schedule)*REPLAY_MS;goTo(time,false); }
-  r.rebuild=()=>{const at=r.time;if(build())goTo(at,false);};
+  // Tocar una llama: zoom suave del viewBox a sus detecciones y panel con el detalle.
+  const FULL={x:0,y:0,w:VIEW.width,h:VIEW.height};
+  r.vb={...FULL};r.focus=null;r.pick=null;r.you=null;r.zoomRaf=0;r.abort=new AbortController();
+  const unitsPerPx=()=>r.k*r.vb.w/VIEW.width;
+  function paintOverlay() {
+    const u=unitsPerPx(),marks=[];
+    if(r.focus)for(const i of r.focus.members)marks.push(svgNode('circle',{class:'live-focus-dot',cx:dets[i].x.toFixed(2),cy:dets[i].y.toFixed(2),r:(3.5*u).toFixed(3)}));
+    if(r.you){const [x,y]=project(r.you.lon,r.you.lat);marks.push(svgNode('circle',{class:'live-you',cx:x.toFixed(2),cy:y.toFixed(2),r:(8*u).toFixed(3)}),svgNode('circle',{class:'live-you-dot',cx:x.toFixed(2),cy:y.toFixed(2),r:(2.5*u).toFixed(3)}));}
+    overlay.replaceChildren(...marks);
+  }
+  function applyView() {
+    const v=r.vb;ui.svg.setAttribute('viewBox',`${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`);
+    const s=`scale(${(v.w/VIEW.width).toFixed(4)})`;for(const c of r.clusters)c.zoom.setAttribute('transform',s);
+    ui.svg.classList.toggle('is-zoomed',v.w<VIEW.width-0.01);paintOverlay();
+  }
+  function animateView(target) {
+    cancelAnimationFrame(r.zoomRaf);const from={...r.vb};
+    if(reducedMotion()){r.vb={...target};applyView();return;}
+    const t0=performance.now();
+    const step=now=>{const p=Math.min(1,(now-t0)/650),e=1-(1-p)**3;r.vb={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e,w:from.w+(target.w-from.w)*e,h:from.h+(target.h-from.h)*e};applyView();if(p<1)r.zoomRaf=requestAnimationFrame(step);};
+    r.zoomRaf=requestAnimationFrame(step);
+  }
+  function markSelected() { const first=r.focus?.members[0];for(const c of r.clusters)c.group.classList.toggle('is-selected',first!=null&&c.members.includes(first)); }
+  function select(ci) {
+    const c=r.clusters[ci];if(!c)return;
+    seekTo(tl.end);
+    r.focus={members:c.members.slice()};markSelected();
+    animateView(zoomBox(c.members.map(i=>dets[i]),VIEW));
+    ui.reset.hidden=false;ui.onFocus(r.focus.members);
+  }
+  function clearFocus() {
+    if(!r.focus)return;
+    const first=r.focus.members[0];r.focus=null;markSelected();animateView({...FULL});ui.reset.hidden=true;ui.onFocus(null);
+    r.clusters.find(c=>c.members.includes(first))?.group.focus({preventScroll:true});
+  }
+  const overlay=svgNode('g',{class:'live-overlay','aria-hidden':'true'});
+  r.rebuild=()=>{const at=r.time;if(build()){goTo(at,false);applyView();markSelected();}};
   if(!build())return;
+  applyView();
+  ui.reset.addEventListener('click',clearFocus);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&r.focus){e.preventDefault();clearFocus();}},{signal:r.abort.signal});
+  // Clic: en modo "elegir punto" fija el punto; si no, abre la llama más cercana (≤ 26 px).
+  ui.svg.addEventListener('click',e=>{
+    const ctm=ui.svg.getScreenCTM();if(!ctm)return;
+    const p=new DOMPoint(e.clientX,e.clientY).matrixTransform(ctm.inverse());
+    if(r.pick){const done=r.pick;r.api.stopPick();mapState.pick=null;const [lon,lat]=unproject(p.x,p.y);done({lat,lon});return;}
+    const u=unitsPerPx();let best=-1,bd=Infinity;
+    r.clusters.forEach((c,i)=>{if(!c.state.shown)return;const d=Math.hypot(p.x-c.x,p.y-(c.y-clusterHeight(c.n)*u*0.45));if(d<bd){bd=d;best=i;}});
+    if(best>=0&&bd<=26*u)select(best);
+  });
+  r.api={
+    startPick(done){r.pick=done;ui.frame.classList.add('is-picking');ui.pickHint.hidden=false;},
+    stopPick(){r.pick=null;ui.frame.classList.remove('is-picking');ui.pickHint.hidden=true;},
+    showPoint(point){r.you=point;paintOverlay();},
+    scrollToMap(){ui.frame.scrollIntoView({block:'center',behavior:reducedMotion()?'auto':'smooth'});}
+  };
   if(r.userPaused){r.playhead=REPLAY_MS+HOLD_MS;goTo(tl.end,false);}else goTo(tl.start,false);
   updateButton();
   ui.play.addEventListener('click',()=>{
@@ -230,7 +291,7 @@ function buildCompare(geo,dets,selection,expected) {
   return {wrap,draw};
 }
 function onLiveResize(){clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{replay?.rebuild();replay?.compare?.draw();},100);}
-function renderLive(snapshot,names,geo,health,notice) {
+function renderLive(snapshot,names,geo,health,notice,tle) {
   const target=document.getElementById('live-content'),s=liveSummary(snapshot,names);
   ensureFlameDefs();
   const status=node('p','live-status',`${t('live.capture',{date:formatUtc(snapshot.generado)})} · ${t('live.last',{date:formatUtc(snapshot.ultima_deteccion_utc)})}`);
@@ -239,15 +300,31 @@ function renderLive(snapshot,names,geo,health,notice) {
   leadValue.append(countNow,countOf);lead.append(leadValue,node('span','live-stat-label',t('live.detected')));stats.append(lead);
   [[t('live.cells',{date:formatDay(snapshot.dia_comparado)}),number(s.nacional.celdas_dia)],[t('live.national'),levelBadge(s.nacional.nivel)]].forEach(([label,value],i)=>{const card=node('div','live-stat');card.append(node('strong',i===1?`live-level level-${s.nacional.nivel??'none'}`:'',value),node('span','live-stat-label',label));if(i===0)card.append(node('span','live-median-context',t('live.medianContext',{median:number(s.nacional.base_p50)})));stats.append(card);});
   const top=node('div','live-top');top.append(stats,status);
+  const next=tle?firstPass(predictPasses(tle,CENTER_MX,Date.now())):null;
+  if(next){const line=node('p','live-next-pass');line.append(satGlyph(),node('span','',next.inNow?t('orbit.nowCenter',{sat:next.name}):t('orbit.nextCenter',{sat:next.name,local:formatLocalTime(next.closest),utc:formatUtcTime(next.closest)})));top.append(line);}
+  const mapApi={startPick:done=>{mapState.pick=done;replay?.api?.startPick(done);},stopPick:()=>{mapState.pick=null;replay?.api?.stopPick();},showPoint:point=>{mapState.you=point;replay?.api?.showPoint(point);},scrollToMap:()=>replay?.api?.scrollToMap()};
+  top.append(buildFireBlock({snapshot,tle,geo,mapApi}));
   const frame=node('div','live-map-frame'),svg=mapSvg(geo,t('live.mapTitle'),t('live.mapDesc'),'live-map');
   const passing=node('p','live-passing');passing.setAttribute('aria-hidden','true');const passingText=node('span','');passing.append(satGlyph(),passingText);
-  frame.append(svg,passing);
+  const pickHint=node('p','live-pick-hint',t('fire.pickHint'));pickHint.hidden=true;
+  frame.append(svg,passing,pickHint);
+  const focusPanel=node('div','live-focus');focusPanel.setAttribute('aria-live','polite');
+  function showFocus(members) {
+    if(!members){focusPanel.replaceChildren();return;}
+    const ds=members.map(i=>snapshot.detecciones[i]),f=clusterSummary(ds),n20=ds.filter(d=>d.sat==='N20').length;
+    const link=node('a','live-focus-link',t('focus.worldview'));link.href=worldviewUrl(f.last);link.target='_blank';link.rel='noopener noreferrer';
+    const parts=[node('h3','live-focus-title',f.n===1?t('focus.titleOne'):t('focus.title',{n:number(f.n)})),node('p','',t('focus.last',{sat:SAT_NAMES[f.last.sat],time:f.last.hora_utc,date:formatDay(f.last.fecha)}))];
+    if(f.n>1)parts.push(node('p','',t('focus.sats',{n20:number(n20),n21:number(f.n-n20)})));
+    parts.push(node('p','',f.frpMax==null?t('focus.frpNone'):t('focus.frp',{frp:number(f.frpMax)})),node('p','live-focus-note',t('focus.dots')),link,node('p','live-focus-note',t('focus.worldviewNote')),node('p','live-focus-note',t(f.night?'focus.nightNote':'focus.dayNote')));
+    focusPanel.replaceChildren(...parts);
+  }
   const dets=snapshot.detecciones.map(d=>{const [x,y]=project(d.lon,d.lat);return {x,y,frp:d.frp,sat:d.sat,time:detectionTime(d)};});
   const passes=satellitePasses(snapshot.detecciones),tl=timelineBins(snapshot.detecciones);
   const bar=node('div','live-map-bar');
   const clockText=node('p','live-clock'),clockTime=node('span','live-clock-time');clockText.append(clockTime);
   const controls=node('div','live-controls');
-  const play=node('button','live-play');play.type='button';controls.append(play);
+  const play=node('button','live-play');play.type='button';
+  const reset=node('button','live-reset',t('focus.reset'));reset.type='button';reset.hidden=true;controls.append(reset,play);
   bar.append(clockText,controls);
   const slider=node('div','live-timeline');slider.tabIndex=0;slider.setAttribute('role','slider');slider.setAttribute('aria-label',t('live.timelineLabel'));slider.setAttribute('aria-valuemin','0');slider.setAttribute('aria-valuemax',String(Math.round((tl.end-tl.start)/60000)));
   const timelineBox=node('div','live-timeline-svg');slider.append(timelineBox);
@@ -267,15 +344,16 @@ function renderLive(snapshot,names,geo,health,notice) {
   else {const list=node('ol','live-rank-list');s.ranking.forEach(item=>{const row=node('li','live-rank-row');row.append(node('strong','',item.name),node('span','',rankingComparison(item)),node('span',`live-level level-${item.nivel}`,levelBadge(item.nivel)));list.append(row);});ranking.append(list);}
   const method=node('details','live-method');method.append(node('summary','',t('live.methodTitle')),node('p','',t('live.flameNote')));for(let i=1;i<=6;i++)method.append(node('p','',t(`live.method.${i}`)));method.append(node('p','',t('live.rankNote')));
   const after=node('div','live-after');after.append(ranking,detectionTable,method);
-  const mapBlock=node('div','live-map-block');if(notice)mapBlock.append(node('p','live-stale',notice));mapBlock.append(bar,frame,slider,legend);
+  const mapBlock=node('div','live-map-block');if(notice)mapBlock.append(node('p','live-stale',notice));mapBlock.append(bar,frame,focusPanel,slider,legend);
   const hero=node('div','live-hero');hero.append(top,mapBlock);
   target.replaceChildren(...[hero,compare?.wrap,after].filter(Boolean));
-  startReplay({svg,frame,play,clockTime,passing,passingText,slider,timeline:timelineBox,countNow,countOf},dets,passes,tl);
-  if(replay)replay.compare=compare;
+  startReplay({svg,frame,play,reset,pickHint,onFocus:showFocus,clockTime,passing,passingText,slider,timeline:timelineBox,countNow,countOf},dets,passes,tl);
+  if(replay){replay.compare=compare;if(mapState.you)replay.api?.showPoint(mapState.you);if(mapState.pick)replay.api?.startPick(mapState.pick);}
   compare?.draw();
 }
 export async function loadLive(names,geo,health) {
   const target=document.getElementById('live-content');
-  try {const response=await fetch('data/live_snapshot.json');if(!response.ok)throw new Error();const data=await response.json();const view=liveView(data,Object.keys(names).filter(id=>id!=='MX'));if(view.mode!=='full')throw new Error();renderLive(data,names,geo,health,view.notice);}
+  const tleRequest=fetch('data/tle.json').then(r=>r.ok?r.json():null).catch(()=>null);
+  try {const response=await fetch('data/live_snapshot.json');if(!response.ok)throw new Error();const data=await response.json();const view=liveView(data,Object.keys(names).filter(id=>id!=='MX'));if(view.mode!=='full')throw new Error();renderLive(data,names,geo,health,view.notice,await tleRequest);}
   catch {stopReplay();const note=node('p','live-stale',t('live.unavailable'));const mini=node('div','calendar-mini');const source=document.getElementById('calendar-svg');if(source){const clone=source.cloneNode(true);clone.removeAttribute('id');clone.removeAttribute('aria-labelledby');clone.setAttribute('aria-hidden','true');clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));mini.append(clone);}const link=node('a','',t('live.explore'));link.href='#calendario';target.replaceChildren(note,mini,link);}
 }
