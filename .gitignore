@@ -5,3 +5,4 @@ data/raw/
 data/raw_us/
 data/processed/
 .vercel
+.claude/
