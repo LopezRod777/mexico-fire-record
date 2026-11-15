@@ -63,12 +63,12 @@ export function clusterSummary(detections) {
 }
 
 const WV_LAYERS = { N20: 'NOAA20', N21: 'NOAA21' };
-// NASA Worldview con bbox ±1°, capas del satélite de la detección y su fecha y hora UTC.
+// NASA Worldview con bbox ±1°, capas del satélite de la detección (calor, aerosoles apagados e imagen) y su fecha y hora UTC.
 export function worldviewUrl(d, pad = 1) {
   const sat = WV_LAYERS[d.sat] ?? 'NOAA20';
   const r = v => Number(v.toFixed(4));
   const v = [r(d.lon - pad), r(d.lat - pad), r(d.lon + pad), r(d.lat + pad)].join(',');
-  const l = `VIIRS_${sat}_Thermal_Anomalies_375m_All,VIIRS_${sat}_CorrectedReflectance_TrueColor`;
+  const l = `VIIRS_${sat}_Thermal_Anomalies_375m_All,VIIRS_${sat}_AOD_Dark_Target_Land_Ocean(hidden),VIIRS_${sat}_CorrectedReflectance_TrueColor`;
   const [hh, mm] = d.hora_utc.split(':');
   return 'https:' + `//worldview.earthdata.nasa.gov/?v=${v}&l=${l}&t=${d.fecha}-T${hh}%3A${mm}%3A00Z`;
 }

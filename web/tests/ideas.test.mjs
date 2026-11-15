@@ -121,8 +121,8 @@ test('nuevo / sigue activo: no se muestra porque la captura trae una sola ventan
 test('Worldview: bbox ±1°, capas del satélite de la detección y fecha y hora UTC', () => {
   const d = { lat: 17.75293, lon: -92.91293, fecha: '2026-11-14', hora_utc: '19:42', sat: 'N21' };
   const H = 'https:' + '//';
-  assert.equal(worldviewUrl(d), H + 'worldview.earthdata.nasa.gov/?v=-93.9129,16.7529,-91.9129,18.7529&l=VIIRS_NOAA21_Thermal_Anomalies_375m_All,VIIRS_NOAA21_CorrectedReflectance_TrueColor&t=2026-11-14-T19%3A42%3A00Z');
-  assert.match(worldviewUrl({ ...d, sat: 'N20' }), /l=VIIRS_NOAA20_Thermal_Anomalies_375m_All,VIIRS_NOAA20_CorrectedReflectance_TrueColor&/);
+  assert.equal(worldviewUrl(d), H + 'worldview.earthdata.nasa.gov/?v=-93.9129,16.7529,-91.9129,18.7529&l=VIIRS_NOAA21_Thermal_Anomalies_375m_All,VIIRS_NOAA21_AOD_Dark_Target_Land_Ocean(hidden),VIIRS_NOAA21_CorrectedReflectance_TrueColor&t=2026-11-14-T19%3A42%3A00Z');
+  assert.match(worldviewUrl({ ...d, sat: 'N20' }), /l=VIIRS_NOAA20_Thermal_Anomalies_375m_All,VIIRS_NOAA20_AOD_Dark_Target_Land_Ocean\(hidden\),VIIRS_NOAA20_CorrectedReflectance_TrueColor&/);
   assert.equal(mapUrl(19.4326, -99.1332), H + 'www.openstreetmap.org/?mlat=19.43260&mlon=-99.13320#map=15/19.43260/-99.13320');
 });
 
@@ -201,7 +201,7 @@ test('textos nuevos: ES y EN, sin "confirmado", sin punto y coma ni dos puntos',
     assert.doesNotMatch(v, /;|:(?!\/\/)/, `${lang} ${k}`);
   }
   assert.match(dictionaries.es['fire.conafor'], /800 737 0000.*2022/);
-  assert.equal(dictionaries.es['focus.worldview'], 'Explorar imágenes y anomalías de ese día');
+  assert.equal(dictionaries.es['focus.worldview'], 'Explorar imágenes, calor y aerosoles de ese día');
   assert.equal(dictionaries.es['fire.passTitle'], 'Próxima cobertura aproximada del barrido');
 });
 
