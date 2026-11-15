@@ -45,7 +45,7 @@ def majority_ties():
 
 
 def export_determinism():
-    paths = sorted(p for p in (ROOT / "web/data").glob("*.json") if p.name != "live_snapshot.json") + sorted((ROOT / "web/data/geo").glob("*.geojson"))
+    paths = sorted(p for p in (ROOT / "web/data").glob("*.json") if p.name not in ("live_snapshot.json", "tle.json")) + sorted((ROOT / "web/data/geo").glob("*.geojson"))
     assert len(paths) == 7, [str(path) for path in paths]
 
     def hashes():
@@ -286,6 +286,30 @@ def independent_baseline():
     return f"día 150; {len(sample)} valores; p50/p90 coinciden ±1e-9"
 
 
+def serie_2026():
+    months = series["months"]
+    assert months[0] == "2000-11" and months[-1] == "2026-10" and len(months) == 26 * 12
+    assert cells["years"] == list(range(2000, 2027))
+    assert con.execute("SELECT max(acq_date)::VARCHAR FROM raw").fetchone()[0] == "2026-10-31"
+    nrt = {"Terra": ["2026-09", "2026-10"], "Aqua": ["2026-09", "2026-10"],
+           "SNPP": ["2026-08", "2026-09", "2026-10"], "Union": ["2026-09", "2026-10"]}
+    assert series["provisional"] == nrt and harm["provisional"] == nrt["SNPP"]
+    for region, row in harm["regions"].items():
+        for month in months[-10:]:
+            i = months.index(month)
+            assert row["fuente"][i] == "SNPP" and row["valor"][i] == series["regions"][region]["SNPP"][i]
+            assert row["lo"][i] is None and row["hi"][i] is None and row["deriva"][i] is True
+    days = dict(con.execute("""SELECT strftime(acq_date,'%Y-%m'),count(DISTINCT acq_date) FROM raw
+                               WHERE sensor='SNPP' AND acq_date >= DATE '2012-02-01' GROUP BY 1""").fetchall())
+    expected = {month: missing for month, n in sorted(days.items())
+                if (missing := pd.Period(month).days_in_month - n)}
+    actual = series["dias_sin_deteccion"]["SNPP"]
+    assert actual == expected, (actual, expected)
+    assert actual["2024-07"] == 11 and actual["2026-07"] == 6
+    assert sum(n for month, n in actual.items() if month.startswith("2026")) == 15
+    return f"312 meses hasta 2026-10; NRT {nrt['SNPP'][0]}→; {sum(actual.values())} días sin S-NPP en {len(actual)} meses"
+
+
 def schema():
     n = len(series["months"])
     assert harm["months"] == series["months"]
@@ -319,6 +343,7 @@ check("validación MX Aqua independiente", independent_validation)
 check("tipos de health", health_types)
 check("resumen de validación estatal", validation_summary)
 check("línea base MX independiente", independent_baseline)
+check("serie hasta 2026, provisional y días sin S-NPP", serie_2026)
 check("esquema y finitud", schema)
 check("tamaños", sizes)
 print(f"RESULTADO: {failures} fallo(s)")

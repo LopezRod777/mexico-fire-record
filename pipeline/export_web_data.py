@@ -1,3 +1,4 @@
+import calendar
 import csv
 import json
 import math
@@ -16,9 +17,14 @@ MONTHLY_SENSORS = (*SENSORS, "Union")
 START = {"Terra": "2000-11", "Aqua": "2002-07", "SNPP": "2012-01", "Union": "2002-07"}
 HEALTH_INTS = {"year", "n", "n_celdas_viirs", "terra_cell_days", "aqua_cell_days", "snpp_cell_days"}
 HEALTH_FLOATS = {"lst_median", "terra_snpp", "aqua_snpp", "p_mismo_dia", "p_dia_siguiente", "p_dia_previo"}
-MONTHS = [f"{year}-{month:02d}" for year in range(2000, 2026) for month in range(1, 13)
-          if (year, month) >= (2000, 11)]
-YEARS = list(range(2000, 2026))
+
+
+def periods(last):
+    """Meses y años del registro, de noviembre de 2000 al último mes con datos (AAAA-MM)."""
+    end = (int(last[:4]), int(last[5:]))
+    months = [f"{year}-{month:02d}" for year in range(2000, end[0] + 1) for month in range(1, 13)
+              if (2000, 11) <= (year, month) <= end]
+    return months, list(range(2000, end[0] + 1))
 
 
 def clean(value):
@@ -105,6 +111,20 @@ def build():
     con.execute(f"CREATE VIEW state AS SELECT * FROM read_parquet('{states}')")
     con.execute("""CREATE TEMP VIEW distinct_days AS SELECT DISTINCT r.sensor,r.acq_date,r.cell_i,r.cell_j,s.state_id
                    FROM raw r JOIN state s USING(cell_i,cell_j)""")
+    MONTHS, YEARS = periods(con.execute("SELECT strftime(max(acq_date),'%Y-%m') FROM raw").fetchone()[0])
+    # Meses que vienen del producto casi en tiempo real (NRT) de FIRMS: provisionales.
+    provisional = {sensor: [] for sensor in MONTHLY_SENSORS}
+    nrt = PROCESSED / "mx/provisional_months.csv"
+    if nrt.exists():
+        with nrt.open(newline="") as file:
+            for row in csv.DictReader(file):
+                provisional[row["sensor"]].append(row["month"])
+    provisional["Union"] = sorted(set(provisional["Terra"]) | set(provisional["Aqua"]))
+    # Días del mes en que S-NPP, la escala de referencia, no dejó ninguna detección: no se rellenan.
+    seen = dict(con.execute("""SELECT strftime(acq_date,'%Y-%m'),count(DISTINCT acq_date) FROM raw
+                               WHERE sensor='SNPP' GROUP BY 1""").fetchall())
+    no_detection = {month: missing for month in MONTHS if month > "2012-01" and
+                    (missing := calendar.monthrange(int(month[:4]), int(month[5:]))[1] - seen.get(month, 0))}
     counts = dict(con.execute("SELECT sensor,count(*) FROM raw GROUP BY 1 ORDER BY 1").fetchall())
     write("meta.json", {"generado": datetime.now(timezone.utc).isoformat(), "filas_entrada_por_sensor": counts,
           "definiciones": {"celda_dia": "Una celda de 0.05° con detección en un día; se unen día y noche.",
@@ -112,7 +132,9 @@ def build():
           "serie_armonizada": "Serie en escala VIIRS S-NPP; 2000-11 a 2002-06 usa Terra y 2002-07 a 2011-12 usa la unión Terra-Aqua con razones mensuales.",
           "ventana_pre_deriva": "Las razones se estiman con 2012–2021, antes de la deriva orbital posterior.",
           "enero_2012": "Enero de 2012 es un mes parcial de S-NPP (inicia el 20 de enero); se estima con Aqua.",
-          "banda_error": "Rango ilustrativo basado en el error mediano de validación, acotado entre 5 % y 100 %; NO es un intervalo estadístico formal."}})
+          "banda_error": "Rango ilustrativo basado en el error mediano de validación, acotado entre 5 % y 100 %; NO es un intervalo estadístico formal.",
+          "provisional": "Meses que vienen del producto casi en tiempo real (NRT) de FIRMS; pueden cambiar cuando NASA publique la versión estándar.",
+          "dias_sin_deteccion": "Días del mes sin ninguna detección de S-NPP en México (el sensor no entregó datos sobre México); el conteo del mes no se rellena."}})
 
     monthly = con.execute("""SELECT sensor,state_id,strftime(acq_date,'%Y-%m') AS month,count(*) AS n
                             FROM distinct_days WHERE state_id!='OUT' GROUP BY 1,2,3""").fetchall()
@@ -127,7 +149,8 @@ def build():
     series = {region: {sensor: [None if m < START[sensor] else by_region[region][sensor].get(m, 0)
                                 for m in MONTHS] for sensor in MONTHLY_SENSORS} for region in regions}
     write("series_monthly.json", {"unidad": "celdas-día con detección (celdas de 0.05°; unión día+noche)",
-          "months": MONTHS, "sensors": list(MONTHLY_SENSORS), "region_names": names, "regions": series})
+          "months": MONTHS, "sensors": list(MONTHLY_SENSORS), "region_names": names, "regions": series,
+          "provisional": provisional, "dias_sin_deteccion": {"SNPP": no_detection}})
 
     yearly = con.execute("""SELECT d.sensor,year(d.acq_date) AS year,
                                  CAST(floor(d.cell_i / 5.0) AS INTEGER) AS ci,
@@ -217,6 +240,7 @@ def build():
             "max_mape_razon_mensual": max(monthly) if monthly else None,
             "n_regiones": len(valid)}
     write("harmonized.json", {"months": MONTHS, "regions": harmonized, "validation_resumen": validation_resumen,
+          "provisional": [month for month in provisional["SNPP"] if month > "2012-01"],
           "metodo_union": {"desde": "2002-07", "hasta": "2011-12",
                            "definicion": "celda-día 0.05° con detección de Terra o Aqua (día y noche)"}})
     print(f"Validación insuficiente: Aqua {insufficient['Aqua']}/33; Terra {insufficient['Terra']}/33; Union {insufficient['Union']}/33")

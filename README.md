@@ -1,4 +1,4 @@
-# Registro de incendios de México, 2000–2025
+# Registro de incendios de México, 2000–2026
 
 Proyecto para NASA Space Apps Challenge 2026, reto "Harmonization of MODIS and VIIRS Hot Spots".
 
@@ -23,11 +23,13 @@ Es estática (HTML, CSS y JS sin dependencias). Para verla: `python3 -m http.ser
 - Los datos NRT no son de calidad científica y la capa "Hoy" es una captura, no se actualiza sola.
 - GOES: FIRMS entrega cada imagen con dos algoritmos (G19/G18 = NOAA FDC, G19FRP/G18FRP = KCL/IPMA FRP-PIXEL; ver la FAQ de FIRMS) y GOES-18 y GOES-19 ven México a la vez, así que el mismo calor se repite; por eso no se cuenta. Si MODIS o GOES fallan al bajar, la captura de VIIRS sigue y el fallo queda en `fetch_info.json`.
 - Humo (NOAA HMS): los polígonos son áreas donde un analista vio humo en imágenes diurnas de GOES; no son perímetros de incendio ni prueba de fuego en un punto. De noche no se traza y las nubes pueden taparlo, así que la falta de trazo no significa que no haya humo. Light, Medium y Heavy son categorías del analista, no concentraciones medidas. El archivo del día empieza vacío y se llena durante el día; la captura baja el de hoy y el de ayer (UTC), se queda con los que tocan la geometría de los estados (no el recuadro, que incluye el sur de EE. UU., el Golfo y Centroamérica), deja fuera los de más de 50,000 km² (el 14 nov 2026 las 8 plumas locales medían de 48 a 4,979 km² y las 3 áreas regionales, de 1.08 a 11.5 millones de km²; cuántas se omiten queda en `n_regionales_omitidas`) y simplifica las formas a ~0.5 km. Si la descarga falla, la captura de VIIRS sigue y el fallo queda en `fetch_info.json`. El lector de shapefile es propio (`pipeline/shapefile_min.py`), sin dependencias nuevas.
-- S-NPP dejó de entregar datos en FIRMS el 2 de noviembre de 2026; 2026 no está en la serie.
+- S-NPP dejó de entregar datos en FIRMS el 2 de noviembre de 2026, así que la serie llega hasta octubre de 2026, el último mes completo (noviembre de 2000 a octubre de 2026 son 312 meses, 26 años). Los meses de 2026 que vienen del producto casi en tiempo real (S-NPP desde agosto, MODIS desde septiembre) son provisionales y pueden cambiar cuando NASA publique la versión estándar; van marcados en `provisional`, en el calendario y en el CSV. Los factores, la validación y la línea base de "Hoy" (2012–2025) no usan 2026.
+- 2026 todavía no tiene CSV anual por país, así que sale de la API de área de FIRMS con el recuadro de la capa en vivo y se queda con las celdas cuyo centro cae en un estado. En abril y mayo de 2025, todas las filas del CSV por país estaban idénticas en la API y ese camino dio entre 0.05 % y 0.20 % más celdas-día que el CSV (detecciones del otro lado de la frontera en celdas mexicanas).
+- Hay 53 días en 15 meses desde 2012 en que S-NPP no entregó datos sobre México (11 en julio de 2024; en 2026, 3 en marzo, 3 en abril, 2 en junio, 6 en julio y 1 en agosto). Esos días no se rellenan, así que el mes puede quedar por debajo de lo real: en 2026 NOAA-20 vio en esos días entre el 5 % y el 20 % de sus celdas-día del mes. Quedan en `dias_sin_deteccion` y en el detalle de cada mes del calendario. Los diagnósticos de "Salud del registro" usan años completos y llegan a 2025.
 - Sin detección no significa sin fuego.
 
 ## Reproducir los datos
-1. `scripts/download_firms_mexico.sh` baja los CSV anuales públicos de NASA FIRMS (sin llave).
+1. `scripts/download_firms_mexico.sh` baja los CSV anuales públicos de NASA FIRMS (sin llave), que llegan a 2025. Para 2026, `FIRMS_MAP_KEY=… python scripts/download_firms_2026.py` baja la API de área en ventanas de 5 días (estándar donde exista, casi en tiempo real después) y `python pipeline/prepare_2026.py` revisa huecos y duplicados y deja solo México y meses completos.
 2. `pip install -r requirements.txt`, luego `pipeline/` (agregados, diagnósticos, asignación a estados, exportación a `web/data/`).
 3. La capa en vivo usa la API de FIRMS con `FIRMS_MAP_KEY` como variable de entorno (no incluida).
 4. Pruebas: `node --test web/tests/` y, una por una, `for f in tests/test_*.py; do python "$f" || break; done`.

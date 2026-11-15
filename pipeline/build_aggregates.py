@@ -1,14 +1,15 @@
 import argparse
 
-from common import PROCESSED, connect
+from common import PROCESSED, connect, connect_2026
 
 
 def build(region):
     output = PROCESSED / region
     output.mkdir(parents=True, exist_ok=True)
     con = connect(region)
+    extra = region == "mx" and connect_2026(con)
     con.execute("""
-        CREATE TEMP VIEW detections AS
+        CREATE TEMP VIEW history AS
         SELECT satellite AS sensor, daynight, acq_date,
                CAST(floor(latitude / 0.05) AS INTEGER) AS cell_i,
                CAST(floor(longitude / 0.05) AS INTEGER) AS cell_j,
@@ -20,6 +21,27 @@ def build(region):
                CAST(floor(longitude / 0.05) AS INTEGER), frp
         FROM v
     """)
+    # 2026 entra con la misma forma; sus filas NRT (versión con "NRT") marcan los meses provisionales.
+    con.execute("CREATE TEMP VIEW detections AS SELECT * FROM history" + ("""
+        UNION ALL
+        SELECT satellite, daynight, acq_date,
+               CAST(floor(latitude / 0.05) AS INTEGER),
+               CAST(floor(longitude / 0.05) AS INTEGER), frp
+        FROM m26
+        UNION ALL
+        SELECT 'SNPP', daynight, acq_date,
+               CAST(floor(latitude / 0.05) AS INTEGER),
+               CAST(floor(longitude / 0.05) AS INTEGER), frp
+        FROM v26""" if extra else ""))
+    if region == "mx":
+        con.execute("""
+            CREATE TEMP TABLE provisional AS
+            SELECT DISTINCT sensor, strftime(acq_date, '%Y-%m') AS month FROM (
+                SELECT satellite AS sensor, acq_date, version FROM m26
+                UNION ALL SELECT 'SNPP', acq_date, version FROM v26)
+            WHERE version LIKE '%NRT%' ORDER BY sensor, month
+        """ if extra else "CREATE TEMP TABLE provisional (sensor VARCHAR, month VARCHAR)")
+        con.execute("COPY provisional TO ? (HEADER, DELIMITER ',')", [str(output / "provisional_months.csv")])
     con.execute("""
         CREATE TEMP TABLE cell_day AS
         SELECT sensor, daynight, cell_i, cell_j, acq_date,

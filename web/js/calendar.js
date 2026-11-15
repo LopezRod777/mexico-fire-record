@@ -10,10 +10,12 @@ export function calendarModel(id, view, metric, series, harmonized) {
   const values = view === 'harmonized' ? adjusted.valor : raw[view];
   const shown = metric === 'anomaly' ? anomalies(months, values) : values;
   const byMonth = new Map(months.map((m, i) => [m, i]));
-  return Array.from({ length: 26 }, (_, y) => Array.from({ length: 12 }, (_, m) => {
+  const snpp = i => view === 'SNPP' || (view === 'harmonized' && adjusted.fuente[i] === 'SNPP');
+  const nrt = (view === 'harmonized' ? harmonized.provisional : series.provisional?.[view]) ?? [];
+  return Array.from({ length: Number(months.at(-1).slice(0, 4)) - 1999 }, (_, y) => Array.from({ length: 12 }, (_, m) => {
     const month = `${2000 + y}-${String(m + 1).padStart(2, '0')}`, i = byMonth.get(month);
     const value = i == null ? null : values[i], display = i == null ? null : shown[i];
-    return { month, value, display, source: i == null ? null : view === 'harmonized' ? adjusted.fuente[i] : view, lo: view === 'harmonized' && i != null ? adjusted.lo[i] : null, hi: view === 'harmonized' && i != null ? adjusted.hi[i] : null, estimated: view === 'harmonized' && i != null && adjusted.fuente[i] != null && adjusted.fuente[i] !== 'SNPP', drift: (view === 'Terra' || view === 'Aqua') && i != null && Boolean(adjusted.deriva[i]) };
+    return { month, value, display, source: i == null ? null : view === 'harmonized' ? adjusted.fuente[i] : view, lo: view === 'harmonized' && i != null ? adjusted.lo[i] : null, hi: view === 'harmonized' && i != null ? adjusted.hi[i] : null, estimated: view === 'harmonized' && i != null && adjusted.fuente[i] != null && adjusted.fuente[i] !== 'SNPP', drift: (view === 'Terra' || view === 'Aqua') && i != null && Boolean(adjusted.deriva[i]), provisional: i != null && (view !== 'harmonized' || snpp(i)) && nrt.includes(month), missingDays: i != null && snpp(i) ? series.dias_sin_deteccion?.SNPP?.[month] ?? 0 : 0 };
   }));
 }
 export function describeCell(cell, metric) {
@@ -22,6 +24,8 @@ export function describeCell(cell, metric) {
   parts.push(t('calendar.source',{source:cell.source ?? t('common.noData')}));
   if (cell.lo != null && cell.hi != null) parts.push(t('calendar.band',{lo:number(Math.round(cell.lo)),hi:number(Math.round(cell.hi))}));
   if (cell.drift) parts.push(t('calendar.drift'));
+  if (cell.missingDays) parts.push(t('calendar.noDetection',{n:cell.missingDays}));
+  if (cell.provisional) parts.push(t('calendar.provisional'));
   return parts.join(' · ');
 }
 export function scaleValue(v, max, mode) {
@@ -60,7 +64,7 @@ export function renderCalendar(model, metric) {
   svg.append(defs);
   const values = model.flat().map(c => c.display).filter(Number.isFinite), max = quantile(values, .98);
   const width = Math.max(300, Math.floor(svg.parentElement.clientWidth || 390)), left = 38, gap = 2, cellW = (width - left - 2) / 12 - gap;
-  svg.setAttribute('viewBox', `0 0 ${width} 632`);
+  svg.setAttribute('viewBox', `0 0 ${width} ${34 + model.length * 23}`);
   const detail = document.getElementById('calendar-detail');
   function select(cell) { detail.textContent = describeCell(cell, metric); }
   [...Array(12)].forEach((_, m) => { const label=new Intl.DateTimeFormat(getLanguage()==='en'?'en-US':'es-MX',{month:'narrow',timeZone:'UTC'}).format(new Date(Date.UTC(2000,m,1))); const text = svgEl('text', { x: left + m * (cellW + gap) + cellW / 2, y: 20, 'text-anchor': 'middle' }); text.textContent = label; svg.append(text); });
@@ -72,6 +76,7 @@ export function renderCalendar(model, metric) {
       const rect = svgEl('rect', { x, y: yy, width: cellW, height: 20, rx: 2, fill, stroke:cell.display != null && scaleValue(cell.display,max,metric)<.34 ? '#D4571A' : '#4A3B33', class: 'cell', tabindex: 0, role: 'button', 'aria-label': describeCell(cell, metric) });
       rect.addEventListener('click', () => select(cell)); rect.addEventListener('focus', () => select(cell)); rect.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(cell); } }); svg.append(rect);
       if (cell.display == null) { const t = svgEl('text', { x: x + cellW / 2, y: yy + 14, 'text-anchor': 'middle', 'aria-hidden': 'true' }); t.textContent = '×'; svg.append(t); }
+      if (cell.provisional) svg.append(svgEl('rect', { x: x + 1.5, y: yy + 1.5, width: cellW - 3, height: 17, rx: 1, class: 'provisional-mark', 'pointer-events': 'none', 'aria-hidden': 'true' }));
       if (cell.estimated || cell.drift) svg.append(svgEl('rect', { x, y: yy, width: cellW, height: 20, fill: `url(#${cell.estimated ? 'dots' : 'stripes'})`, 'pointer-events': 'none', 'aria-hidden': 'true' }));
     });
   });
@@ -84,4 +89,5 @@ export function renderCalendar(model, metric) {
   tableWrap.replaceChildren(table);
   document.getElementById('estimated-legend').hidden = !model.flat().some(c => c.estimated);
   document.getElementById('drift-legend').hidden = !model.flat().some(c => c.drift);
+  document.getElementById('provisional-legend').hidden = !model.flat().some(c => c.provisional);
 }

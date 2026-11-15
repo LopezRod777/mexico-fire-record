@@ -35,7 +35,9 @@ async function main(){
   const select=document.getElementById('region-select');
   Object.entries(series.region_names).filter(([id])=>id!=='MX').sort((a,b)=>a[1].localeCompare(b[1],'es-MX')).forEach(([id,name])=>{const option=document.createElement('option');option.value=id;option.textContent=name;select.append(option);});
   function paintRegions(){select.querySelectorAll('option').forEach(option=>{option.textContent=regionName(option.value,series.region_names);});}
-  function drawRegion(){document.getElementById('calendar-region').textContent=regionName(state.region,series.region_names);renderMap(cells,geo,state.region,state.sensor,state.year,id=>{state.region=id;select.value=id;drawRegion();},series.region_names);renderCalendar(calendarModel(state.region,state.view,state.metric,series,harmonized),state.metric);renderConfidence(state.region,harmonized,series.region_names);animateCalendarChange();animateErrorChange();}
+  const lastMonth=series.months.at(-1);
+  function yearText(year){return String(year)===lastMonth.slice(0,4)&&!lastMonth.endsWith('-12')?t('map.partialYear',{year,month:new Intl.DateTimeFormat(getLanguage()==='en'?'en-US':'es-MX',{month:'long',timeZone:'UTC'}).format(new Date(`${lastMonth}-01T00:00:00Z`))}):String(year);}
+  function drawRegion(){document.getElementById('calendar-region').textContent=regionName(state.region,series.region_names);document.getElementById('map-year-value').textContent=yearText(state.year);renderMap(cells,geo,state.region,state.sensor,state.year,id=>{state.region=id;select.value=id;drawRegion();},series.region_names);renderCalendar(calendarModel(state.region,state.view,state.metric,series,harmonized),state.metric);renderConfidence(state.region,harmonized,series.region_names);animateCalendarChange();animateErrorChange();}
   paintRegions();
   select.addEventListener('change',()=>{state.region=select.value;drawRegion();});
   document.querySelectorAll('[name="map-sensor"]').forEach(input=>input.addEventListener('change',()=>{if(input.checked){state.sensor=input.value;drawRegion();}}));

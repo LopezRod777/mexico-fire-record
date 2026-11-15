@@ -8,7 +8,7 @@ sys.path.insert(0, str(ROOT / "pipeline"))
 
 import duckdb
 
-from common import PROCESSED, connect
+from common import PROCESSED, connect, connect_2026
 
 
 failures = 0
@@ -40,13 +40,22 @@ def conservation(region):
     """).fetchall())
     raw["SNPP"] = con.execute("SELECT count(*) FROM v").fetchone()[0]
     path = PROCESSED / region / "cell_day.parquet"
-    actual = dict(con.execute("SELECT sensor, sum(n_det) FROM read_parquet(?) GROUP BY sensor", [str(path)]).fetchall())
+    # Los CSV anuales llegan a 2025; 2026 entra aparte (API de área) y se comprueba abajo.
+    actual = dict(con.execute("SELECT sensor, sum(n_det) FROM read_parquet(?) WHERE acq_date < DATE '2026-01-01' GROUP BY sensor", [str(path)]).fetchall())
     assert actual == raw, f"aggregate={actual}; raw={raw}"
+    later = dict(con.execute("SELECT sensor, sum(n_det) FROM read_parquet(?) WHERE acq_date >= DATE '2026-01-01' GROUP BY sensor", [str(path)]).fetchall())
+    extra = {}
+    if region == "mx" and connect_2026(con):
+        extra = dict(con.execute("SELECT satellite, count(*) FROM m26 GROUP BY satellite").fetchall())
+        extra["SNPP"] = con.execute("SELECT count(*) FROM v26").fetchone()[0]
+        assert con.execute("""SELECT min(acq_date)::VARCHAR, max(acq_date)::VARCHAR FROM
+            (SELECT acq_date FROM m26 UNION ALL SELECT acq_date FROM v26)""").fetchone() == ("2026-01-01", "2026-10-31")
+    assert later == extra, f"aggregate 2026={later}; raw 2026={extra}"
     if region == "mx":
         assert raw["Terra"] + raw["Aqua"] == 1_685_470, raw
         assert raw["SNPP"] == 4_225_823, raw
     con.close()
-    return str(actual)
+    return f"{actual}; 2026: {later}"
 
 
 def lst(region):
