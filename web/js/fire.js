@@ -63,11 +63,17 @@ function passList(tle, point, now) {
     }
     list.append(node('li', '', text));
   }
-  wrap.append(list, node('p', 'fire-note', t('fire.passNote')), node('p', 'fire-note', t('fire.tzNote')));
+  wrap.append(list);
   return wrap;
 }
 
-function reportBlock(point, verdict) {
+// Ajusta los renglones del mensaje a su texto. Solo mide si se ve (dentro de "Más detalles" cerrado
+// no tiene ancho), así que también se llama al abrirlo.
+function fitRows(msg) { if (!msg?.clientWidth) return; const cs = getComputedStyle(msg); msg.rows = 1; msg.rows = textRows(msg.scrollHeight, parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom), parseFloat(cs.lineHeight)); }
+
+// Reporte: 911 como acción principal, copiar y abrir el mapa a la vista. CONAFOR, la nota de qué se
+// comparte y el texto del mensaje van a "Más detalles" (more).
+function reportBlock(point, verdict, more) {
   const wrap = node('div', 'fire-report');
   wrap.append(node('h4', '', t('fire.reportTitle')));
   const call = node('a', 'fire-call', t('fire.call911')); call.href = 'tel:911';
@@ -77,15 +83,16 @@ function reportBlock(point, verdict) {
   const copy = node('button', 'fire-copy', t('fire.copy')); copy.type = 'button';
   const openMap = node('a', 'fire-open-map', t('fire.openMap')); openMap.href = url; openMap.target = '_blank'; openMap.rel = 'noopener noreferrer';
   const actions = node('div', 'fire-share'); actions.append(copy, openMap);
-  const share = node('p', 'fire-note fire-share-note', t('fire.shareNote'));
+  const share = node('p', 'fire-share-note', t('fire.shareNote'));
   const label = node('label', 'fire-message-label', t('fire.messageLabel')); label.htmlFor = 'fire-message';
   const text = node('textarea', 'fire-message'); text.id = 'fire-message'; text.readOnly = true; text.rows = 4; text.value = message;
   const copied = node('p', 'fire-note'); copied.setAttribute('role', 'status');
   copy.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(message); copied.textContent = t('fire.copied'); }
-    catch { copied.textContent = t('fire.copyFailed'); text.focus(); text.select(); }
+    catch { copied.textContent = t('fire.copyFailed'); more.open = true; fitRows(text); text.focus(); text.select(); }
   });
-  wrap.append(call, conafor, actions, share, copied, label, text);
+  wrap.append(call, actions, copied);
+  more.append(conafor, share, label, text);
   return wrap;
 }
 
@@ -119,24 +126,33 @@ export function buildFireBlock({ snapshot, tle, geo, mapApi }) {
     const now = Date.now(), verdict = fireVerdict(point, snapshot, now);
     const heading = node('h4', 'fire-result-title', t('fire.resultTitle')); heading.tabIndex = -1;
     const out = [heading, node('p', 'fire-point', t('fire.point', { coords: coords(point), source: t(`fire.source.${point.source}`) }))];
+    // A la vista: punto, veredicto, mapa, reporte y pases. Lo demás (ventana, GOES, notas) va en
+    // "Más detalles", sin perder ningún aviso.
+    const more = node('details', 'fire-more'), details = [];
+    more.append(node('summary', '', t('fire.more')));
     if (verdict.kind === 'stale') out.push(node('p', 'fire-verdict', t('fire.stale', { age: ageText(verdict.ageH) })));
     else {
-      out.push(node('p', 'fire-window', t('fire.window', { km: NEAR_KM, from: formatDate(new Date(verdict.from).toISOString()), to: formatDate(new Date(verdict.to).toISOString()) })));
+      details.push(node('p', 'fire-window', t('fire.window', { km: NEAR_KM, from: formatDate(new Date(verdict.from).toISOString()), to: formatDate(new Date(verdict.to).toISOString()) })));
       if (verdict.kind === 'near') {
         const m = verdict.matches[0], n = verdict.matches.length;
-        out.push(node('p', 'fire-verdict', t(n === 1 ? 'fire.nearOne' : 'fire.nearMany', { n, radius: NEAR_KM, km: km(m.km), ...detClock(m.d) })), miniMap(geo, point, verdict.matches), node('p', 'fire-note', t('fire.miniMapDesc')));
-      } else out.push(node('p', 'fire-verdict', t('fire.none')), node('p', '', t('fire.noneWhy')));
+        out.push(node('p', 'fire-verdict', t(n === 1 ? 'fire.nearOne' : 'fire.nearMany', { n, radius: NEAR_KM, km: km(m.km), ...detClock(m.d) })), miniMap(geo, point, verdict.matches));
+        details.push(node('p', '', t('fire.miniMapDesc')));
+      } else out.push(node('p', 'fire-verdict', t('fire.none')), node('p', 'fire-none-why', t('fire.noneWhy')));
       const goes = validGoes(snapshot.goes) ? nearestGoes(point, snapshot.goes) : null;
-      if (goes) out.push(node('p', 'fire-goes', t('fire.goesNear', { km: km(goes.km), time: goes.g.hora_utc, date: formatDay(goes.g.fecha), h: snapshot.goes.ventana_horas })));
-      out.push(node('p', 'fire-note', t('fire.heatNote')));
+      if (goes) details.push(node('p', 'fire-goes', t('fire.goesNear', { km: km(goes.km), time: goes.g.hora_utc, date: formatDay(goes.g.fecha), h: snapshot.goes.ventana_horas })));
+      details.push(node('p', '', t('fire.heatNote')));
     }
-    // El reporte (911, CONAFOR, copiar) va justo después del veredicto y la cobertura al final.
-    out.push(reportBlock(point, verdict));
+    if (tle) details.push(node('p', '', t('fire.passNote')), node('p', '', t('fire.tzNote')));
+    more.append(...details);
+    // El reporte (911, copiar) va justo después del veredicto y la cobertura al final.
+    out.push(reportBlock(point, verdict, more));
     if (tle) out.push(passList(tle, point, now));
+    out.push(more);
     result.replaceChildren(...out);
     // Al cambiar de idioma el bloque todavía no está en la página, así que se mide en el cuadro siguiente.
     const msg = result.querySelector('.fire-message');
-    requestAnimationFrame(() => { if (!msg?.clientWidth) return; const cs = getComputedStyle(msg); msg.rows = 1; msg.rows = textRows(msg.scrollHeight, parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom), parseFloat(cs.lineHeight)); });
+    more.addEventListener('toggle', () => fitRows(msg));
+    requestAnimationFrame(() => fitRows(msg));
     again.hidden = false;
     if (reveal) { heading.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); heading.focus({ preventScroll: true }); }
   }

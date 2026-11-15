@@ -107,3 +107,10 @@ test('textos nuevos de Hoy en ES y EN', () => {
   assert.equal(formatClock('2026-11-14T07:24:00Z'), 'Nov 14 · 07:24 UTC');
   setLanguage('es');
 });
+
+test('reproducción: el mapa que pasa bajo el cursor al hacer scroll no la pausa', () => {
+  const live = readFileSync(new URL('../js/live.js', import.meta.url), 'utf8');
+  // Safari y Chrome mandan pointerenter sin movimiento real al hacer scroll: no debe pausar.
+  assert.doesNotMatch(live, /pointerenter[^\n]*hoverPaused\s*=\s*true/);
+  assert.match(live, /if\(e\.pointerType==='touch'\|\|!moved\)return;/);
+});
