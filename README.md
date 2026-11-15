@@ -20,16 +20,29 @@ Es estática (HTML, CSS y JS sin dependencias). Para verla: `python3 -m http.ser
 - Validación dejando un año fuera (2012–2021): error mensual mediano entre estados 19.5 % con la unión (24.8 % con solo Aqua); nacional 5.5 %. Solo Terra: mediana estatal 27.0 %. Piso estimado por conteos pequeños: ~6.7 % (experiments/e17_error.py).
 - La validación solo cubre 2012–2021. Aplicarla a 2002–2011 es extrapolación no probada.
 - NOAA-20/21 se compararon con S-NPP en 20 días de marzo de 2025 (razones 1.02 y 1.00). No está verificado fuera de ese periodo.
-- Los datos NRT no son de calidad científica y la capa "Hoy" es una captura, no se actualiza sola.
+- Los datos NRT no son de calidad científica. La capa "Hoy" es una captura que se renueva sola (ver "Captura autónoma"); la página abierta no se recarga, así que muestra la captura que había al cargarla.
 - GOES: FIRMS entrega cada imagen con dos algoritmos (G19/G18 = NOAA FDC, G19FRP/G18FRP = KCL/IPMA FRP-PIXEL; ver la FAQ de FIRMS) y GOES-18 y GOES-19 ven México a la vez, así que el mismo calor se repite; por eso no se cuenta. Si MODIS o GOES fallan al bajar, la captura de VIIRS sigue y el fallo queda en `fetch_info.json`.
 - Humo (NOAA HMS): los polígonos son áreas donde un analista vio humo en imágenes diurnas de GOES; no son perímetros de incendio ni prueba de fuego en un punto. De noche no se traza y las nubes pueden taparlo, así que la falta de trazo no significa que no haya humo. Light, Medium y Heavy son categorías del analista, no concentraciones medidas. El archivo del día empieza vacío y se llena durante el día; la captura baja el de hoy y el de ayer (UTC), se queda con los que tocan la geometría de los estados (no el recuadro, que incluye el sur de EE. UU., el Golfo y Centroamérica), deja fuera los de más de 50,000 km² (el 14 nov 2026 las 8 plumas locales medían de 48 a 4,979 km² y las 3 áreas regionales, de 1.08 a 11.5 millones de km²; cuántas se omiten queda en `n_regionales_omitidas`) y simplifica las formas a ~0.5 km. Si la descarga falla, la captura de VIIRS sigue y el fallo queda en `fetch_info.json`. El lector de shapefile es propio (`pipeline/shapefile_min.py`), sin dependencias nuevas.
 - S-NPP dejó de entregar datos en FIRMS el 2 de noviembre de 2026; 2026 no está en la serie.
 - Sin detección no significa sin fuego.
 
+## Captura autónoma de "Hoy"
+La capa "Hoy" se renueva sin intervención, en esta cadena:
+
+1. Vercel Cron (`web/vercel.json`) llama a `/api/refresh` cada 15 minutos.
+2. `web/api/refresh.js` comprueba el encabezado `Authorization` contra `CRON_SECRET` y pide a GitHub un `workflow_dispatch` del workflow `.github/workflows/live.yml`. No guarda ni devuelve datos, solo dispara.
+3. `live.yml` baja FIRMS (`scripts/fetch_live.py`), regenera `web/data/live_snapshot.json` (`pipeline/live_snapshot.py`), la verifica contra los datos crudos (`tests/test_live.py`) y, solo si la captura cambió y la verificación pasa, hace commit a `main`, que es lo que la publica. El mismo workflow conserva su propio horario (minutos 7 y 37 de cada hora) como respaldo.
+
+Configuración (solo nombres, los valores no viven en el repositorio):
+- Variables de entorno del proyecto en Vercel: `CRON_SECRET` y `GH_DISPATCH_TOKEN` (token de GitHub con permiso para disparar el workflow).
+- Secreto del repositorio en GitHub: `FIRMS_MAP_KEY` (llave de la API de NASA FIRMS).
+
+Fuentes actuales de "Hoy": VIIRS de NOAA-20 y NOAA-21 (NRT), MODIS NRT (Terra y Aqua), GOES-18 y GOES-19, todas vía NASA FIRMS, y las plumas de humo del Hazard Mapping System (HMS) de NOAA. Las órbitas (TLE, de CelesTrak) de NOAA-20 y NOAA-21 para el próximo pase se bajan en la misma tarea.
+
 ## Reproducir los datos
 1. `scripts/download_firms_mexico.sh` baja los CSV anuales públicos de NASA FIRMS (sin llave).
 2. `pip install -r requirements.txt`, luego `pipeline/` (agregados, diagnósticos, asignación a estados, exportación a `web/data/`).
-3. La capa en vivo usa la API de FIRMS con `FIRMS_MAP_KEY` como variable de entorno (no incluida).
+3. La capa en vivo usa la API de FIRMS con `FIRMS_MAP_KEY` como variable de entorno (no incluida): `python scripts/fetch_live.py` y luego `python pipeline/live_snapshot.py`.
 4. Pruebas: `node --test web/tests/` y, una por una, `for f in tests/test_*.py; do python "$f" || break; done`.
 
 `data/raw` y `data/processed` no se incluyen por tamaño (~900 MB); se regeneran con los pasos anteriores. Los JSON que usa la web ya están en `web/data/`.
