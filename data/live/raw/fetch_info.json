@@ -36,8 +36,8 @@
   "HMS_SMOKE_AYER": {
    "ok": true,
    "fecha": "2026-11-16",
-   "poligonos": 124,
-   "bytes": 48375
+   "poligonos": 241,
+   "bytes": 107589
   },
   "HMS_SMOKE_HOY": {
    "ok": false,
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-17T03:00:25Z"
+ "descargado_utc": "2026-11-17T03:15:24Z"
 }
