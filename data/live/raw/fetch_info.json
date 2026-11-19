@@ -29,9 +29,9 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 1753,
+   "filas": 1761,
    "fecha_min": "2026-11-18",
-   "fecha_max": "2026-11-18"
+   "fecha_max": "2026-11-19"
   },
   "HMS_SMOKE_AYER": {
    "ok": true,
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-19T00:15:22Z"
+ "descargado_utc": "2026-11-19T00:30:26Z"
 }
