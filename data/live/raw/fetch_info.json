@@ -23,13 +23,13 @@
  "fuentes_extra": {
   "MODIS_NRT": {
    "ok": true,
-   "filas": 144,
+   "filas": 161,
    "fecha_min": "2026-11-18",
    "fecha_max": "2026-11-19"
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2152,
+   "filas": 2160,
    "fecha_min": "2026-11-18",
    "fecha_max": "2026-11-19"
   },
@@ -46,5 +46,5 @@
    "bytes": 927
   }
  },
- "descargado_utc": "2026-11-19T15:45:22Z"
+ "descargado_utc": "2026-11-19T16:00:25Z"
 }
