@@ -14,10 +14,10 @@
    "ultima_hora_utc_del_ultimo_dia": "2008"
   },
   "VIIRS_NOAA21_NRT": {
-   "filas": 915,
+   "filas": 944,
    "fecha_min": "2026-11-19",
    "fecha_max": "2026-11-20",
-   "ultima_hora_utc_del_ultimo_dia": "1909"
+   "ultima_hora_utc_del_ultimo_dia": "2051"
   }
  },
  "fuentes_extra": {
@@ -29,7 +29,7 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2387,
+   "filas": 2425,
    "fecha_min": "2026-11-19",
    "fecha_max": "2026-11-20"
   },
@@ -46,5 +46,5 @@
    "bytes": 21349
   }
  },
- "descargado_utc": "2026-11-20T20:45:22Z"
+ "descargado_utc": "2026-11-20T21:00:25Z"
 }
