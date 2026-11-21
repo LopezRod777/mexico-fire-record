@@ -17,7 +17,7 @@
    "filas": 868,
    "fecha_min": "2026-11-20",
    "fecha_max": "2026-11-21",
-   "ultima_hora_utc_del_ultimo_dia": "0916"
+   "ultima_hora_utc_del_ultimo_dia": "0915"
   }
  },
  "fuentes_extra": {
@@ -29,7 +29,7 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2472,
+   "filas": 2473,
    "fecha_min": "2026-11-20",
    "fecha_max": "2026-11-21"
   },
@@ -37,13 +37,14 @@
    "ok": true,
    "fecha": "2026-11-20",
    "poligonos": 188,
-   "bytes": 86021
+   "bytes": 79310
   },
   "HMS_SMOKE_HOY": {
-   "ok": false,
+   "ok": true,
    "fecha": "2026-11-21",
-   "error": "descarga fallida (HTTPError)"
+   "poligonos": 0,
+   "bytes": 927
   }
  },
- "descargado_utc": "2026-11-21T11:15:23Z"
+ "descargado_utc": "2026-11-21T11:30:21Z"
 }
