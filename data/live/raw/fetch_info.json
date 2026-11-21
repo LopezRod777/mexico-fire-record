@@ -8,10 +8,10 @@
  "day_range": 2,
  "fuentes": {
   "VIIRS_NOAA20_NRT": {
-   "filas": 598,
+   "filas": 609,
    "fecha_min": "2026-11-20",
-   "fecha_max": "2026-11-20",
-   "ultima_hora_utc_del_ultimo_dia": "2008"
+   "fecha_max": "2026-11-21",
+   "ultima_hora_utc_del_ultimo_dia": "0652"
   },
   "VIIRS_NOAA21_NRT": {
    "filas": 623,
@@ -29,7 +29,7 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2381,
+   "filas": 2393,
    "fecha_min": "2026-11-20",
    "fecha_max": "2026-11-21"
   },
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-21T06:45:22Z"
+ "descargado_utc": "2026-11-21T07:00:28Z"
 }
