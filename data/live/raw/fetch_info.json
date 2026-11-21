@@ -29,7 +29,7 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2844,
+   "filas": 2865,
    "fecha_min": "2026-11-20",
    "fecha_max": "2026-11-21"
   },
@@ -46,5 +46,5 @@
    "bytes": 14692
   }
  },
- "descargado_utc": "2026-11-21T20:00:31Z"
+ "descargado_utc": "2026-11-21T20:15:24Z"
 }
