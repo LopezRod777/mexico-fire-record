@@ -23,15 +23,15 @@
  "fuentes_extra": {
   "MODIS_NRT": {
    "ok": true,
-   "filas": 31,
+   "filas": 75,
    "fecha_min": "2026-11-21",
    "fecha_max": "2026-11-21"
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 1311,
+   "filas": 1336,
    "fecha_min": "2026-11-21",
-   "fecha_max": "2026-11-21"
+   "fecha_max": "2026-11-22"
   },
   "HMS_SMOKE_AYER": {
    "ok": true,
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-22T00:15:22Z"
+ "descargado_utc": "2026-11-22T00:30:24Z"
 }
