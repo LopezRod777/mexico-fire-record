@@ -17,7 +17,7 @@
    "filas": 844,
    "fecha_min": "2026-11-21",
    "fecha_max": "2026-11-22",
-   "ultima_hora_utc_del_ultimo_dia": "2013"
+   "ultima_hora_utc_del_ultimo_dia": "2014"
   }
  },
  "fuentes_extra": {
@@ -29,7 +29,7 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2850,
+   "filas": 2881,
    "fecha_min": "2026-11-21",
    "fecha_max": "2026-11-22"
   },
@@ -46,5 +46,5 @@
    "bytes": 8099
   }
  },
- "descargado_utc": "2026-11-22T22:15:23Z"
+ "descargado_utc": "2026-11-22T22:30:20Z"
 }
