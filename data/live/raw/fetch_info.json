@@ -23,13 +23,13 @@
  "fuentes_extra": {
   "MODIS_NRT": {
    "ok": true,
-   "filas": 142,
+   "filas": 144,
    "fecha_min": "2026-11-21",
    "fecha_max": "2026-11-22"
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2268,
+   "filas": 2269,
    "fecha_min": "2026-11-21",
    "fecha_max": "2026-11-22"
   },
@@ -42,9 +42,9 @@
   "HMS_SMOKE_HOY": {
    "ok": true,
    "fecha": "2026-11-22",
-   "poligonos": 0,
-   "bytes": 927
+   "poligonos": 7,
+   "bytes": 5777
   }
  },
- "descargado_utc": "2026-11-22T17:30:23Z"
+ "descargado_utc": "2026-11-22T17:45:28Z"
 }
