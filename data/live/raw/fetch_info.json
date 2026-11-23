@@ -14,10 +14,10 @@
    "ultima_hora_utc_del_ultimo_dia": "1910"
   },
   "VIIRS_NOAA21_NRT": {
-   "filas": 546,
+   "filas": 605,
    "fecha_min": "2026-11-22",
    "fecha_max": "2026-11-23",
-   "ultima_hora_utc_del_ultimo_dia": "1017"
+   "ultima_hora_utc_del_ultimo_dia": "1954"
   }
  },
  "fuentes_extra": {
@@ -28,10 +28,8 @@
    "fecha_max": "2026-11-23"
   },
   "GOES_NRT": {
-   "ok": true,
-   "filas": 2457,
-   "fecha_min": "2026-11-22",
-   "fecha_max": "2026-11-23"
+   "ok": false,
+   "error": "descarga fallida (TimeoutError)"
   },
   "HMS_SMOKE_AYER": {
    "ok": true,
@@ -46,5 +44,5 @@
    "bytes": 8908
   }
  },
- "descargado_utc": "2026-11-23T19:45:23Z"
+ "descargado_utc": "2026-11-23T20:00:19Z"
 }
