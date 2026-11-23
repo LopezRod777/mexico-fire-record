@@ -14,10 +14,10 @@
    "ultima_hora_utc_del_ultimo_dia": "0936"
   },
   "VIIRS_NOAA21_NRT": {
-   "filas": 543,
+   "filas": 546,
    "fecha_min": "2026-11-22",
    "fecha_max": "2026-11-23",
-   "ultima_hora_utc_del_ultimo_dia": "0839"
+   "ultima_hora_utc_del_ultimo_dia": "1017"
   }
  },
  "fuentes_extra": {
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-23T10:15:27Z"
+ "descargado_utc": "2026-11-23T10:30:28Z"
 }
