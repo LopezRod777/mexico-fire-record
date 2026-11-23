@@ -29,7 +29,7 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2120,
+   "filas": 2137,
    "fecha_min": "2026-11-22",
    "fecha_max": "2026-11-23"
   },
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-23T05:45:28Z"
+ "descargado_utc": "2026-11-23T06:00:21Z"
 }
