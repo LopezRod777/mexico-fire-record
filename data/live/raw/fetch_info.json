@@ -28,8 +28,10 @@
    "fecha_max": "2026-11-23"
   },
   "GOES_NRT": {
-   "ok": false,
-   "error": "descarga fallida (TimeoutError)"
+   "ok": true,
+   "filas": 2482,
+   "fecha_min": "2026-11-22",
+   "fecha_max": "2026-11-23"
   },
   "HMS_SMOKE_AYER": {
    "ok": true,
@@ -44,5 +46,5 @@
    "bytes": 8908
   }
  },
- "descargado_utc": "2026-11-23T20:00:19Z"
+ "descargado_utc": "2026-11-23T20:15:23Z"
 }
