@@ -8,14 +8,14 @@
  "day_range": 2,
  "fuentes": {
   "VIIRS_NOAA20_NRT": {
-   "filas": 762,
-   "fecha_min": "2026-11-22",
+   "filas": 317,
+   "fecha_min": "2026-11-23",
    "fecha_max": "2026-11-23",
    "ultima_hora_utc_del_ultimo_dia": "2053"
   },
   "VIIRS_NOAA21_NRT": {
-   "filas": 702,
-   "fecha_min": "2026-11-22",
+   "filas": 289,
+   "fecha_min": "2026-11-23",
    "fecha_max": "2026-11-23",
    "ultima_hora_utc_del_ultimo_dia": "1955"
   }
@@ -23,28 +23,27 @@
  "fuentes_extra": {
   "MODIS_NRT": {
    "ok": true,
-   "filas": 109,
-   "fecha_min": "2026-11-22",
+   "filas": 53,
+   "fecha_min": "2026-11-23",
    "fecha_max": "2026-11-23"
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 2625,
-   "fecha_min": "2026-11-22",
+   "filas": 873,
+   "fecha_min": "2026-11-23",
    "fecha_max": "2026-11-23"
   },
   "HMS_SMOKE_AYER": {
    "ok": true,
-   "fecha": "2026-11-22",
-   "poligonos": 39,
-   "bytes": 14715
-  },
-  "HMS_SMOKE_HOY": {
-   "ok": true,
    "fecha": "2026-11-23",
    "poligonos": 35,
    "bytes": 15789
+  },
+  "HMS_SMOKE_HOY": {
+   "ok": false,
+   "fecha": "2026-11-24",
+   "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-23T23:45:23Z"
+ "descargado_utc": "2026-11-24T00:00:25Z"
 }
