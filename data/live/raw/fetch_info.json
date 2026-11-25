@@ -8,10 +8,10 @@
  "day_range": 2,
  "fuentes": {
   "VIIRS_NOAA20_NRT": {
-   "filas": 207,
+   "filas": 324,
    "fecha_min": "2026-11-24",
    "fecha_max": "2026-11-25",
-   "ultima_hora_utc_del_ultimo_dia": "0718"
+   "ultima_hora_utc_del_ultimo_dia": "0859"
   },
   "VIIRS_NOAA21_NRT": {
    "filas": 313,
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-25T08:45:20Z"
+ "descargado_utc": "2026-11-25T09:00:22Z"
 }
