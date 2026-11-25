@@ -29,7 +29,7 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 776,
+   "filas": 797,
    "fecha_min": "2026-11-24",
    "fecha_max": "2026-11-25"
   },
@@ -42,9 +42,9 @@
   "HMS_SMOKE_HOY": {
    "ok": true,
    "fecha": "2026-11-25",
-   "poligonos": 2,
-   "bytes": 2413
+   "poligonos": 4,
+   "bytes": 3215
   }
  },
- "descargado_utc": "2026-11-25T18:45:30Z"
+ "descargado_utc": "2026-11-25T19:00:29Z"
 }
