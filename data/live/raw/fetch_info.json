@@ -29,7 +29,7 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 1006,
+   "filas": 1008,
    "fecha_min": "2026-11-25",
    "fecha_max": "2026-11-26"
   },
@@ -37,7 +37,7 @@
    "ok": true,
    "fecha": "2026-11-25",
    "poligonos": 22,
-   "bytes": 9761
+   "bytes": 9668
   },
   "HMS_SMOKE_HOY": {
    "ok": false,
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-26T11:15:22Z"
+ "descargado_utc": "2026-11-26T11:30:21Z"
 }
