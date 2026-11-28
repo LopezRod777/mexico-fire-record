@@ -8,7 +8,7 @@
  "day_range": 2,
  "fuentes": {
   "VIIRS_NOAA20_NRT": {
-   "filas": 314,
+   "filas": 308,
    "fecha_min": "2026-11-27",
    "fecha_max": "2026-11-27",
    "ultima_hora_utc_del_ultimo_dia": "2116"
@@ -29,15 +29,15 @@
   },
   "GOES_NRT": {
    "ok": true,
-   "filas": 685,
+   "filas": 688,
    "fecha_min": "2026-11-27",
    "fecha_max": "2026-11-28"
   },
   "HMS_SMOKE_AYER": {
    "ok": true,
    "fecha": "2026-11-27",
-   "poligonos": 23,
-   "bytes": 10410
+   "poligonos": 62,
+   "bytes": 26503
   },
   "HMS_SMOKE_HOY": {
    "ok": false,
@@ -45,5 +45,5 @@
    "error": "descarga fallida (HTTPError)"
   }
  },
- "descargado_utc": "2026-11-28T03:00:30Z"
+ "descargado_utc": "2026-11-28T03:15:20Z"
 }
